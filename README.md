@@ -1,5 +1,7 @@
 # Neubot DASH Go client and server
 
+[![GoDoc](https://godoc.org/github.com/neubot/dash?status.svg)](https://godoc.org/github.com/neubot/dash) [![Build Status](https://travis-ci.org/neubot/dash.svg?branch=master)](https://travis-ci.org/neubot/dash) [![Coverage Status](https://coveralls.io/repos/github/neubot/dash/badge.svg?branch=master)](https://coveralls.io/github/neubot/dash?branch=master) [![Go Report Card](https://goreportcard.com/badge/github.com/neubot/dash)](https://goreportcard.com/report/github.com/neubot/dash)
+
 This repository contains an implementation of Neubot's DASH experiment
 client and server, both written in Go.
 

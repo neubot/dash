@@ -263,24 +263,24 @@ type resultsFile struct {
 
 func (h *Handler) savedata(session *sessionInfo) error {
 	name := path.Join(h.Datadir, session.stamp.Format("2006/01/02"))
-	err := os.MkdirAll(name, 0755)
+	err := h.Dependencies.OSMkdirAll(name, 0755)
 	if err != nil {
 		return err
 	}
 	name += "/neubot-dash-" + session.stamp.Format("20060102T150405.000000000Z") + ".json.gz"
 	// My assumption here is that we have nanosecond precision and hence it's
 	// unlikely to have conflicts. If I'm wrong, O_EXCL will let us know.
-	filep, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	filep, err := h.Dependencies.OSOpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
 		return err
 	}
 	defer filep.Close()
-	zipper, err := gzip.NewWriterLevel(filep, gzip.BestSpeed)
+	zipper, err := h.Dependencies.GzipNewWriterLevel(filep, gzip.BestSpeed)
 	if err != nil {
 		return err
 	}
 	defer zipper.Close()
-	data, err := json.Marshal(session.serverSchema)
+	data, err := h.Dependencies.JSONMarshal(session.serverSchema)
 	if err != nil {
 		return err
 	}

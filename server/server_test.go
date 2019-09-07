@@ -1,13 +1,16 @@
 package server_test
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -281,6 +284,99 @@ func TestCollectMarshalJSONError(t *testing.T) {
 	})
 	writer := httptest.NewRecorder()
 	handler.Dependencies.JSONMarshal = func(v interface{}) ([]byte, error) {
+		return nil, mocks.ErrMocked
+	}
+	mux.ServeHTTP(writer, req)
+	resp := writer.Result()
+	if resp.StatusCode != 500 {
+		t.Fatal("Expected different status code")
+	}
+}
+
+func TestCollectOSMkdirAllError(t *testing.T) {
+	mux, handler := prepare()
+	negotiateResponse, err := doNegotiate(mux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/collect/dash", nil)
+	req.Header.Set("Authorization", negotiateResponse.Authorization)
+	req.Body = ioutil.NopCloser(mocks.ProgrammableReader{
+		Reader: strings.NewReader("[]"),
+	})
+	writer := httptest.NewRecorder()
+	handler.Dependencies.OSMkdirAll = func(path string, perm os.FileMode) error {
+		return mocks.ErrMocked
+	}
+	mux.ServeHTTP(writer, req)
+	resp := writer.Result()
+	if resp.StatusCode != 500 {
+		t.Fatal("Expected different status code")
+	}
+}
+
+func TestCollectOSOpenFileError(t *testing.T) {
+	mux, handler := prepare()
+	negotiateResponse, err := doNegotiate(mux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/collect/dash", nil)
+	req.Header.Set("Authorization", negotiateResponse.Authorization)
+	req.Body = ioutil.NopCloser(mocks.ProgrammableReader{
+		Reader: strings.NewReader("[]"),
+	})
+	writer := httptest.NewRecorder()
+	handler.Dependencies.OSOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		return nil, mocks.ErrMocked
+	}
+	mux.ServeHTTP(writer, req)
+	resp := writer.Result()
+	if resp.StatusCode != 500 {
+		t.Fatal("Expected different status code")
+	}
+}
+
+func TestCollectGzipNewWriterLevelError(t *testing.T) {
+	mux, handler := prepare()
+	negotiateResponse, err := doNegotiate(mux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/collect/dash", nil)
+	req.Header.Set("Authorization", negotiateResponse.Authorization)
+	req.Body = ioutil.NopCloser(mocks.ProgrammableReader{
+		Reader: strings.NewReader("[]"),
+	})
+	writer := httptest.NewRecorder()
+	handler.Dependencies.GzipNewWriterLevel = func(w io.Writer, level int) (*gzip.Writer, error) {
+		return nil, mocks.ErrMocked
+	}
+	mux.ServeHTTP(writer, req)
+	resp := writer.Result()
+	if resp.StatusCode != 500 {
+		t.Fatal("Expected different status code")
+	}
+}
+
+func TestCollectSecondJSONMarshalError(t *testing.T) {
+	mux, handler := prepare()
+	negotiateResponse, err := doNegotiate(mux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/collect/dash", nil)
+	req.Header.Set("Authorization", negotiateResponse.Authorization)
+	req.Body = ioutil.NopCloser(mocks.ProgrammableReader{
+		Reader: strings.NewReader("[]"),
+	})
+	writer := httptest.NewRecorder()
+	var count int
+	handler.Dependencies.JSONMarshal = func(v interface{}) ([]byte, error) {
+		if count <= 0 {
+			count++
+			return json.Marshal(v)
+		}
 		return nil, mocks.ErrMocked
 	}
 	mux.ServeHTTP(writer, req)

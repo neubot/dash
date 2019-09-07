@@ -61,6 +61,9 @@ type Client struct {
 	// NewClient constructor to a do-nothing logger.
 	Logger common.Logger
 
+	// NumIterations is the num of iterations you want to perform.
+	NumIterations int64
+
 	// MLabNSClient is the mlabns client. We'll configure it with
 	// defaults in NewClient and you may override it.
 	MLabNSClient *mlabns.Client
@@ -87,6 +90,7 @@ func NewClient(clientName, clientVersion string) *Client {
 		HTTPClient:    http.DefaultClient,
 		Logger:        internal.NoLogger{},
 		MLabNSClient:  mlabns.NewClient("neubot", ua),
+		NumIterations: 15,
 		begin:         time.Now(),
 		scheme:        "http",
 		userAgent:     ua,
@@ -249,7 +253,6 @@ func (c *Client) loop(ctx context.Context, ch chan<- common.ClientResults) {
 	if c.err != nil {
 		return
 	}
-	const maxIteration = 15
 	// Note: according to a comment in MK sources 3000 kbit/s was the
 	// minimum speed recommended by Netflix for SD quality in 2017.
 	//
@@ -263,7 +266,7 @@ func (c *Client) loop(ctx context.Context, ch chan<- common.ClientResults) {
 		ServerURL:     "http://" + c.FQDN + "/",
 		Version:       magicVersion,
 	}
-	for current.Iteration < maxIteration {
+	for current.Iteration < c.NumIterations {
 		c.err = c.download(ctx, negotiateResponse.Authorization, &current)
 		if c.err != nil {
 			return

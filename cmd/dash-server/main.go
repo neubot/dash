@@ -25,7 +25,7 @@ import (
 )
 
 var (
-	flagDatadir = flag.String("datadir", ".", "directory where to save results")
+	flagDatadir  = flag.String("datadir", ".", "directory where to save results")
 	flagEndpoint = flag.String("endpoint", ":80", "endpoint where to listen")
 )
 

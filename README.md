@@ -12,6 +12,7 @@ release procedure for the server, described below, uses Docker.
 
 ```bash
 docker build -t neubot/dash .
+docker tag neubot/dash neubot/dash:`date -u +%Y%m%d%H%M%S`-`git log -1 --format=%h`
 ```
 
 ### Test locally
@@ -31,6 +32,5 @@ install -d datadir && docker run --network=bridge                \
 ### Release
 
 ```bash
-docker tag neubot/dash neubot/dash:`date -u +%Y%m%d%H%M%S`
 docker push neubot/dash
 ```

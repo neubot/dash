@@ -6,7 +6,8 @@ client and server, both written in Go.
 ## Server
 
 The server is meant to be deployed at Measurement Lab. For this reason the
-release procedure for the server, described below, uses Docker.
+release procedure for the server, described below, uses Docker. Images will
+be available as [neubot/dash](https://hub.docker.com/r/neubot/dash).
 
 ### Build
 

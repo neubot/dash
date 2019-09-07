@@ -110,16 +110,20 @@ func TestDownloadInvalidSize(t *testing.T) {
 	}
 }
 
+func doDownloadWithAuth(mux *http.ServeMux, urlpath, auth string) *http.Response {
+	req := httptest.NewRequest("GET", urlpath, nil)
+	req.Header.Set("Authorization", auth)
+	writer := httptest.NewRecorder()
+	mux.ServeHTTP(writer, req)
+	return writer.Result()
+}
+
 func doDownload(mux *http.ServeMux, urlpath string) (string, int, error) {
 	negotiateResponse, err := doNegotiate(mux)
 	if err != nil {
 		return "", 0, err
 	}
-	req := httptest.NewRequest("GET", urlpath, nil)
-	req.Header.Set("Authorization", negotiateResponse.Authorization)
-	writer := httptest.NewRecorder()
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
+	resp := doDownloadWithAuth(mux, urlpath, negotiateResponse.Authorization)
 	if resp.StatusCode != 200 {
 		return "", 0, errors.New("Expected different status code")
 	}
@@ -163,6 +167,19 @@ func TestDownloadHugeSize(t *testing.T) {
 	}
 	if size != dash.MaxSize {
 		t.Fatal("Unexpected segment length")
+	}
+}
+
+func TestDownloadTooManyRequests(t *testing.T) {
+	mux, handler := prepareEx()
+	handler.MaxIterations = 1
+	auth, _, err := doDownload(mux, "/dash/download")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := doDownloadWithAuth(mux, "/dash/download", auth)
+	if resp.StatusCode != 429 {
+		t.Fatal("Unexpected status code")
 	}
 }
 

@@ -37,6 +37,10 @@ type Handler struct {
 	// NewHandler constructor to a do-nothing logger.
 	Logger common.Logger
 
+	// MaxIterations is the maximum number of iterations that this
+	// server is allowing a clients to perform.
+	MaxIterations int64
+
 	mtx      sync.Mutex
 	sessions map[string]*sessionInfo
 	stop     chan interface{}
@@ -45,10 +49,11 @@ type Handler struct {
 // NewHandler creates a new handler instance
 func NewHandler(datadir string) *Handler {
 	return &Handler{
-		Datadir:  datadir,
-		Logger:   internal.NoLogger{},
-		sessions: make(map[string]*sessionInfo),
-		stop:     make(chan interface{}),
+		Datadir:       datadir,
+		Logger:        internal.NoLogger{},
+		MaxIterations: 17,
+		sessions:      make(map[string]*sessionInfo),
+		stop:          make(chan interface{}),
 	}
 }
 
@@ -66,11 +71,25 @@ func (h *Handler) createSession(UUID string) {
 	h.sessions[UUID] = session
 }
 
-func (h *Handler) haveSession(UUID string) (ok bool) {
+type sessionState int
+
+const (
+	sessionMissing = sessionState(iota)
+	sessionActive
+	sessionExpired
+)
+
+func (h *Handler) getSessionState(UUID string) sessionState {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
-	_, ok = h.sessions[UUID]
-	return
+	session, ok := h.sessions[UUID]
+	if !ok {
+		return sessionMissing
+	}
+	if session.iteration >= h.MaxIterations {
+		return sessionExpired
+	}
+	return sessionActive
 }
 
 func (h *Handler) updateSession(UUID string, count int) {
@@ -186,8 +205,17 @@ var (
 
 func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get(authorization)
-	if h.haveSession(sessionID) == false {
+	state := h.getSessionState(sessionID)
+	if state == sessionMissing {
 		w.WriteHeader(400)
+		return
+	}
+	// The Neubot implementation used to raise runtime error in this case
+	// leading to 500 being returned to the client. Here we deviate from
+	// the original implementation returning a value that seems to be much
+	// more useful and actionable to the client.
+	if state == sessionExpired {
+		w.WriteHeader(429)
 		return
 	}
 	siz := strings.Replace(r.URL.Path, "/dash/download", "", -1)

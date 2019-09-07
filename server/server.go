@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/neubot/dash/common"
 	"github.com/neubot/dash/internal"
+	"github.com/neubot/dash/internal/mockable"
 )
 
 type sessionInfo struct {
@@ -152,7 +152,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
-	UUID, err := uuid.NewRandom()
+	UUID, err := mockable.NewRandomUUID()
 	if err != nil {
 		w.WriteHeader(500)
 		return
@@ -166,7 +166,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 	//
 	// A side effect of this implementation choice is that we are now
 	// tolerating incoming requests that do not contain any body.
-	data, err := json.Marshal(common.NegotiateResponse{
+	data, err := mockable.MarshalJSON(common.NegotiateResponse{
 		Authorization: UUID.String(),
 		QueuePos:      0,
 		RealAddress:   address,
@@ -241,7 +241,7 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	once.Do(func() {
 		rand.Seed(time.Now().UTC().UnixNano())
 	})
-	_, err = rand.Read(data)
+	_, err = mockable.RandRead(data)
 	if err != nil {
 		w.WriteHeader(500)
 		return
@@ -299,9 +299,9 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		return
 	}
-	data, err = json.Marshal(session.serverSchema.Server)
+	data, err = mockable.MarshalJSON(session.serverSchema.Server)
 	if err != nil {
-		w.WriteHeader(400)
+		w.WriteHeader(500)
 		return
 	}
 	err = h.savedata(session)

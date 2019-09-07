@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"testing"
 
 	dash "github.com/neubot/dash/client"
+	"github.com/neubot/dash/internal/mockable"
 	"github.com/neubot/dash/internal/mocks"
 )
 
@@ -133,6 +135,52 @@ func TestMlabNSFailure(t *testing.T) {
 	}
 }
 
+func TestNegotiateMarshalJSONError(t *testing.T) {
+	clnt := dash.NewClient(softwareName, softwareVersion)
+	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
+		mlabnsSuccessfulResponse(),
+	)
+	savedfunc := mockable.MarshalJSON
+	mockable.MarshalJSON = func(v interface{}) ([]byte, error) {
+		return nil, mocks.ErrMocked
+	}
+	ch, err := clnt.StartDownload(context.Background())
+	mockable.MarshalJSON = savedfunc
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+		t.Fatal("Did not expect a meaurement here")
+	}
+	err = clnt.Error()
+	if err == nil {
+		t.Fatal("Expected an error here")
+	}
+}
+
+func TestNegotiateHTTPNewRequestError(t *testing.T) {
+	clnt := dash.NewClient(softwareName, softwareVersion)
+	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
+		mlabnsSuccessfulResponse(),
+	)
+	savedfunc := mockable.HTTPNewRequest
+	mockable.HTTPNewRequest = func(method string, url string, body io.Reader) (*http.Request, error) {
+		return nil, mocks.ErrMocked
+	}
+	ch, err := clnt.StartDownload(context.Background())
+	mockable.HTTPNewRequest = savedfunc
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+		t.Fatal("Did not expect a meaurement here")
+	}
+	err = clnt.Error()
+	if err == nil {
+		t.Fatal("Expected an error here")
+	}
+}
+
 func TestNegotiateRequestError(t *testing.T) {
 	clnt := dash.NewClient(softwareName, softwareVersion)
 	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
@@ -238,6 +286,38 @@ func TestNegotiateNotAuthorized(t *testing.T) {
 	}
 }
 
+func TestDownloadHTTPNewRequestError(t *testing.T) {
+	clnt := dash.NewClient(softwareName, softwareVersion)
+	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
+		mlabnsSuccessfulResponse(),
+	)
+	clnt.HTTPClient = mocks.NewHTTPClient(
+		goodNegotiationResponse(),
+		mocks.NewHTTPRoundTripFailure(expectedFirstDownloadURL),
+	)
+	var calls int
+	savedfunc := mockable.HTTPNewRequest
+	mockable.HTTPNewRequest = func(method string, url string, body io.Reader) (*http.Request, error) {
+		if calls <= 0 {
+			calls++
+			return savedfunc(method, url, body)
+		}
+		return nil, mocks.ErrMocked
+	}
+	ch, err := clnt.StartDownload(context.Background())
+	mockable.HTTPNewRequest = savedfunc
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+		t.Fatal("Did not expect a meaurement here")
+	}
+	err = clnt.Error()
+	if err == nil {
+		t.Fatal("Expected an error here")
+	}
+}
+
 func TestDownloadRequestError(t *testing.T) {
 	clnt := dash.NewClient(softwareName, softwareVersion)
 	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
@@ -297,6 +377,82 @@ func TestDownloadReadBodyError(t *testing.T) {
 	}
 	for range ch {
 		t.Fatal("Did not expect a meaurement here")
+	}
+	err = clnt.Error()
+	if err == nil {
+		t.Fatal("Expected an error here")
+	}
+}
+
+func TestCollectMarshalJSONError(t *testing.T) {
+	clnt := dash.NewClient(softwareName, softwareVersion)
+	clnt.NumIterations = 1
+	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
+		mlabnsSuccessfulResponse(),
+	)
+	clnt.HTTPClient = mocks.NewHTTPClient(
+		goodNegotiationResponse(),
+		goodResponse(expectedFirstDownloadURL, "VERYSHORTBODY"),
+		mocks.NewHTTPRoundTripFailure(expectedCollectURL),
+	)
+	var calls int
+	savedfunc := mockable.MarshalJSON
+	mockable.MarshalJSON = func(v interface{}) ([]byte, error) {
+		if calls <= 0 {
+			calls++
+			return savedfunc(v)
+		}
+		return nil, mocks.ErrMocked
+	}
+	ch, err := clnt.StartDownload(context.Background())
+	mockable.MarshalJSON = savedfunc
+	if err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	for range ch {
+		count++
+	}
+	if count != 1 {
+		t.Fatal("Expected to see a single measurement")
+	}
+	err = clnt.Error()
+	if err == nil {
+		t.Fatal("Expected an error here")
+	}
+}
+
+func TestCollectHTTPNewRequest(t *testing.T) {
+	clnt := dash.NewClient(softwareName, softwareVersion)
+	clnt.NumIterations = 1
+	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
+		mlabnsSuccessfulResponse(),
+	)
+	clnt.HTTPClient = mocks.NewHTTPClient(
+		goodNegotiationResponse(),
+		goodResponse(expectedFirstDownloadURL, "VERYSHORTBODY"),
+		mocks.NewHTTPRoundTripFailure(expectedCollectURL),
+	)
+	var calls int
+	savedfunc := mockable.HTTPNewRequest
+	mockable.HTTPNewRequest = func(method string, url string, body io.Reader) (*http.Request, error) {
+		if calls <= 1 {
+			calls++
+			return savedfunc(method, url, body)
+		}
+		return nil, mocks.ErrMocked
+	}
+	ch, err := clnt.StartDownload(context.Background())
+	mockable.HTTPNewRequest = savedfunc
+	if err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	for range ch {
+		count++
+	}
+	if count != 1 {
+		t.Fatal("Expected to see a single measurement")
 	}
 	err = clnt.Error()
 	if err == nil {

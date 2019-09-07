@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/apex/log"
+	"github.com/google/uuid"
 	"github.com/neubot/dash/common"
+	"github.com/neubot/dash/internal/mockable"
 	"github.com/neubot/dash/internal/mocks"
 	dash "github.com/neubot/dash/server"
 )
@@ -28,6 +30,38 @@ func prepareEx() (mux *http.ServeMux, handler *dash.Handler) {
 func prepare() (mux *http.ServeMux) {
 	mux, _ = prepareEx()
 	return
+}
+
+func TestNegotiateNewRandomUUIDError(t *testing.T) {
+	mux := prepare()
+	req := httptest.NewRequest("POST", "/negotiate/dash", nil)
+	writer := httptest.NewRecorder()
+	savedfunc := mockable.NewRandomUUID
+	mockable.NewRandomUUID = func() (uuid.UUID, error) {
+		return uuid.UUID{}, mocks.ErrMocked
+	}
+	mux.ServeHTTP(writer, req)
+	mockable.NewRandomUUID = savedfunc
+	resp := writer.Result()
+	if resp.StatusCode != 500 {
+		t.Fatal("Expected different status code")
+	}
+}
+
+func TestNegotiateMarshalJSONError(t *testing.T) {
+	mux := prepare()
+	req := httptest.NewRequest("POST", "/negotiate/dash", nil)
+	writer := httptest.NewRecorder()
+	savedfunc := mockable.MarshalJSON
+	mockable.MarshalJSON = func(v interface{}) ([]byte, error) {
+		return nil, mocks.ErrMocked
+	}
+	mux.ServeHTTP(writer, req)
+	mockable.MarshalJSON = savedfunc
+	resp := writer.Result()
+	if resp.StatusCode != 500 {
+		t.Fatal("Expected different status code")
+	}
 }
 
 func TestNegotiateNoRemoteAddr(t *testing.T) {
@@ -116,6 +150,23 @@ func doDownloadWithAuth(mux *http.ServeMux, urlpath, auth string) *http.Response
 	writer := httptest.NewRecorder()
 	mux.ServeHTTP(writer, req)
 	return writer.Result()
+}
+
+func TestDownloadRandReadError(t *testing.T) {
+	mux := prepare()
+	negotiateResponse, err := doNegotiate(mux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	savedfunc := mockable.RandRead
+	mockable.RandRead = func(p []byte) (n int, err error) {
+		return 0, mocks.ErrMocked
+	}
+	resp := doDownloadWithAuth(mux, "/dash/download", negotiateResponse.Authorization)
+	mockable.RandRead = savedfunc
+	if resp.StatusCode != 500 {
+		t.Fatal("Unexpected status code")
+	}
 }
 
 func doDownload(mux *http.ServeMux, urlpath string) (string, int, error) {
@@ -225,6 +276,30 @@ func TestCollectNoBody(t *testing.T) {
 	mux.ServeHTTP(writer, req)
 	resp := writer.Result()
 	if resp.StatusCode != 400 {
+		t.Fatal("Expected different status code")
+	}
+}
+
+func TestCollectMarshalJSONError(t *testing.T) {
+	mux := prepare()
+	negotiateResponse, err := doNegotiate(mux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/collect/dash", nil)
+	req.Header.Set("Authorization", negotiateResponse.Authorization)
+	req.Body = ioutil.NopCloser(mocks.ProgrammableReader{
+		Reader: strings.NewReader("[]"),
+	})
+	writer := httptest.NewRecorder()
+	savedfunc := mockable.MarshalJSON
+	mockable.MarshalJSON = func(v interface{}) ([]byte, error) {
+		return nil, mocks.ErrMocked
+	}
+	mux.ServeHTTP(writer, req)
+	mockable.MarshalJSON = savedfunc
+	resp := writer.Result()
+	if resp.StatusCode != 500 {
 		t.Fatal("Expected different status code")
 	}
 }

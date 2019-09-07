@@ -16,6 +16,7 @@ import (
 	"github.com/m-lab/ndt7-client-go/mlabns"
 	"github.com/neubot/dash/common"
 	"github.com/neubot/dash/internal"
+	"github.com/neubot/dash/internal/mockable"
 )
 
 const (
@@ -102,7 +103,7 @@ func NewClient(clientName, clientVersion string) *Client {
 // token that will be used by us and by the server to identify this experiment.
 func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error) {
 	var negotiateResponse common.NegotiateResponse
-	data, err := json.Marshal(common.NegotiateRequest{
+	data, err := mockable.MarshalJSON(common.NegotiateRequest{
 		DASHRates: common.DefaultRates,
 	})
 	if err != nil {
@@ -113,7 +114,7 @@ func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error
 	URL.Scheme = c.scheme
 	URL.Host = c.FQDN
 	URL.Path = common.NegotiatePath
-	req, err := http.NewRequest("POST", URL.String(), bytes.NewReader(data))
+	req, err := mockable.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
 	if err != nil {
 		return negotiateResponse, err
 	}
@@ -158,12 +159,12 @@ func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error
 func (c *Client) download(
 	ctx context.Context, authorization string, current *common.ClientResults,
 ) error {
-	numBytes := (current.Rate * 1000 * current.ElapsedTarget) >> 3
+	nbytes := (current.Rate * 1000 * current.ElapsedTarget) >> 3
 	var URL url.URL
 	URL.Scheme = c.scheme
 	URL.Host = c.FQDN
-	URL.Path = fmt.Sprintf("%s%d", common.DownloadPath, numBytes)
-	req, err := http.NewRequest("GET", URL.String(), nil)
+	URL.Path = fmt.Sprintf("%s%d", common.DownloadPath, nbytes)
+	req, err := mockable.HTTPNewRequest("GET", URL.String(), nil)
 	if err != nil {
 		return err
 	}
@@ -201,7 +202,7 @@ func (c *Client) download(
 // collect is the final phase of the test. We send to the server what we
 // measured and we receive back what it has measured.
 func (c *Client) collect(ctx context.Context, authorization string) error {
-	data, err := json.Marshal(c.clientResults)
+	data, err := mockable.MarshalJSON(c.clientResults)
 	if err != nil {
 		return err
 	}
@@ -210,7 +211,7 @@ func (c *Client) collect(ctx context.Context, authorization string) error {
 	URL.Scheme = c.scheme
 	URL.Host = c.FQDN
 	URL.Path = common.CollectPath
-	req, err := http.NewRequest("POST", URL.String(), bytes.NewReader(data))
+	req, err := mockable.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
 	if err != nil {
 		return err
 	}

@@ -16,7 +16,7 @@ import (
 	"github.com/m-lab/ndt7-client-go/mlabns"
 	"github.com/neubot/dash/common"
 	"github.com/neubot/dash/internal"
-	"github.com/neubot/dash/internal/mockable"
+	"github.com/neubot/dash/mockable"
 )
 
 const (
@@ -49,6 +49,10 @@ type Client struct {
 	// ClientVersion is the version of the client application. This field is
 	// initialized by the NewClient constructor.
 	ClientVersion string
+
+	// Dependencies contains mockable dependencies. Usually you don't
+	// want to touch them unless you're into unit testing.
+	Dependencies mockable.Dependencies
 
 	// FQDN is the server of the server to use. If the FQDN is not
 	// specified, we'll use mlab-ns to discover a server.
@@ -88,6 +92,7 @@ func NewClient(clientName, clientVersion string) *Client {
 	return &Client{
 		ClientName:    clientName,
 		ClientVersion: clientVersion,
+		Dependencies:  mockable.NewDependencies(),
 		HTTPClient:    http.DefaultClient,
 		Logger:        internal.NoLogger{},
 		MLabNSClient:  mlabns.NewClient("neubot", ua),
@@ -103,7 +108,7 @@ func NewClient(clientName, clientVersion string) *Client {
 // token that will be used by us and by the server to identify this experiment.
 func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error) {
 	var negotiateResponse common.NegotiateResponse
-	data, err := mockable.MarshalJSON(common.NegotiateRequest{
+	data, err := c.Dependencies.JSONMarshal(common.NegotiateRequest{
 		DASHRates: common.DefaultRates,
 	})
 	if err != nil {
@@ -114,7 +119,7 @@ func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error
 	URL.Scheme = c.scheme
 	URL.Host = c.FQDN
 	URL.Path = common.NegotiatePath
-	req, err := mockable.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
+	req, err := c.Dependencies.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
 	if err != nil {
 		return negotiateResponse, err
 	}
@@ -164,7 +169,7 @@ func (c *Client) download(
 	URL.Scheme = c.scheme
 	URL.Host = c.FQDN
 	URL.Path = fmt.Sprintf("%s%d", common.DownloadPath, nbytes)
-	req, err := mockable.HTTPNewRequest("GET", URL.String(), nil)
+	req, err := c.Dependencies.HTTPNewRequest("GET", URL.String(), nil)
 	if err != nil {
 		return err
 	}
@@ -202,7 +207,7 @@ func (c *Client) download(
 // collect is the final phase of the test. We send to the server what we
 // measured and we receive back what it has measured.
 func (c *Client) collect(ctx context.Context, authorization string) error {
-	data, err := mockable.MarshalJSON(c.clientResults)
+	data, err := c.Dependencies.JSONMarshal(c.clientResults)
 	if err != nil {
 		return err
 	}
@@ -211,7 +216,7 @@ func (c *Client) collect(ctx context.Context, authorization string) error {
 	URL.Scheme = c.scheme
 	URL.Host = c.FQDN
 	URL.Path = common.CollectPath
-	req, err := mockable.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
+	req, err := c.Dependencies.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
 	if err != nil {
 		return err
 	}

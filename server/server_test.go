@@ -15,33 +15,25 @@ import (
 	"github.com/apex/log"
 	"github.com/google/uuid"
 	"github.com/neubot/dash/common"
-	"github.com/neubot/dash/internal/mockable"
 	"github.com/neubot/dash/internal/mocks"
 	dash "github.com/neubot/dash/server"
 )
 
-func prepareEx() (mux *http.ServeMux, handler *dash.Handler) {
+func prepare() (mux *http.ServeMux, handler *dash.Handler) {
 	mux = http.NewServeMux()
 	handler = dash.NewHandler("..") // run in toplevel dir
 	handler.RegisterHandlers(mux)
 	return
 }
 
-func prepare() (mux *http.ServeMux) {
-	mux, _ = prepareEx()
-	return
-}
-
 func TestNegotiateNewRandomUUIDError(t *testing.T) {
-	mux := prepare()
+	mux, handler := prepare()
 	req := httptest.NewRequest("POST", "/negotiate/dash", nil)
 	writer := httptest.NewRecorder()
-	savedfunc := mockable.NewRandomUUID
-	mockable.NewRandomUUID = func() (uuid.UUID, error) {
+	handler.Dependencies.UUIDNewRandom = func() (uuid.UUID, error) {
 		return uuid.UUID{}, mocks.ErrMocked
 	}
 	mux.ServeHTTP(writer, req)
-	mockable.NewRandomUUID = savedfunc
 	resp := writer.Result()
 	if resp.StatusCode != 500 {
 		t.Fatal("Expected different status code")
@@ -49,15 +41,13 @@ func TestNegotiateNewRandomUUIDError(t *testing.T) {
 }
 
 func TestNegotiateMarshalJSONError(t *testing.T) {
-	mux := prepare()
+	mux, handler := prepare()
 	req := httptest.NewRequest("POST", "/negotiate/dash", nil)
 	writer := httptest.NewRecorder()
-	savedfunc := mockable.MarshalJSON
-	mockable.MarshalJSON = func(v interface{}) ([]byte, error) {
+	handler.Dependencies.JSONMarshal = func(v interface{}) ([]byte, error) {
 		return nil, mocks.ErrMocked
 	}
 	mux.ServeHTTP(writer, req)
-	mockable.MarshalJSON = savedfunc
 	resp := writer.Result()
 	if resp.StatusCode != 500 {
 		t.Fatal("Expected different status code")
@@ -65,7 +55,7 @@ func TestNegotiateMarshalJSONError(t *testing.T) {
 }
 
 func TestNegotiateNoRemoteAddr(t *testing.T) {
-	mux := prepare()
+	mux, _ := prepare()
 	req := httptest.NewRequest("POST", "/negotiate/dash", nil)
 	req.RemoteAddr = ""
 	writer := httptest.NewRecorder()
@@ -97,7 +87,7 @@ func doNegotiate(mux *http.ServeMux) (common.NegotiateResponse, error) {
 }
 
 func TestNegotiateNormal(t *testing.T) {
-	mux := prepare()
+	mux, _ := prepare()
 	negotiateResponse, err := doNegotiate(mux)
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +107,7 @@ func TestNegotiateNormal(t *testing.T) {
 }
 
 func TestDownloadNoAuth(t *testing.T) {
-	mux := prepare()
+	mux, _ := prepare()
 	req := httptest.NewRequest("GET", "/dash/download", nil)
 	req.RemoteAddr = ""
 	writer := httptest.NewRecorder()
@@ -129,7 +119,7 @@ func TestDownloadNoAuth(t *testing.T) {
 }
 
 func TestDownloadInvalidSize(t *testing.T) {
-	mux := prepare()
+	mux, _ := prepare()
 	negotiateResponse, err := doNegotiate(mux)
 	if err != nil {
 		t.Fatal(err)
@@ -153,17 +143,15 @@ func doDownloadWithAuth(mux *http.ServeMux, urlpath, auth string) *http.Response
 }
 
 func TestDownloadRandReadError(t *testing.T) {
-	mux := prepare()
+	mux, handler := prepare()
 	negotiateResponse, err := doNegotiate(mux)
 	if err != nil {
 		t.Fatal(err)
 	}
-	savedfunc := mockable.RandRead
-	mockable.RandRead = func(p []byte) (n int, err error) {
+	handler.Dependencies.RandRead = func(p []byte) (n int, err error) {
 		return 0, mocks.ErrMocked
 	}
 	resp := doDownloadWithAuth(mux, "/dash/download", negotiateResponse.Authorization)
-	mockable.RandRead = savedfunc
 	if resp.StatusCode != 500 {
 		t.Fatal("Unexpected status code")
 	}
@@ -189,7 +177,7 @@ func doDownload(mux *http.ServeMux, urlpath string) (string, int, error) {
 }
 
 func TestDownloadNoSize(t *testing.T) {
-	mux := prepare()
+	mux, _ := prepare()
 	_, size, err := doDownload(mux, "/dash/download")
 	if err != nil {
 		t.Fatal(err)
@@ -200,7 +188,7 @@ func TestDownloadNoSize(t *testing.T) {
 }
 
 func TestDownloadNegativeSize(t *testing.T) {
-	mux := prepare()
+	mux, _ := prepare()
 	_, size, err := doDownload(mux, "/dash/download/-1")
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +199,7 @@ func TestDownloadNegativeSize(t *testing.T) {
 }
 
 func TestDownloadHugeSize(t *testing.T) {
-	mux := prepare()
+	mux, _ := prepare()
 	_, size, err := doDownload(mux, "/dash/download/1125899906842624")
 	if err != nil {
 		t.Fatal(err)
@@ -222,7 +210,7 @@ func TestDownloadHugeSize(t *testing.T) {
 }
 
 func TestDownloadTooManyRequests(t *testing.T) {
-	mux, handler := prepareEx()
+	mux, handler := prepare()
 	handler.MaxIterations = 1
 	auth, _, err := doDownload(mux, "/dash/download")
 	if err != nil {
@@ -235,7 +223,7 @@ func TestDownloadTooManyRequests(t *testing.T) {
 }
 
 func TestCollectNoAuth(t *testing.T) {
-	mux := prepare()
+	mux, _ := prepare()
 	req := httptest.NewRequest("POST", "/collect/dash", nil)
 	writer := httptest.NewRecorder()
 	mux.ServeHTTP(writer, req)
@@ -246,7 +234,7 @@ func TestCollectNoAuth(t *testing.T) {
 }
 
 func TestCollectReadBodyError(t *testing.T) {
-	mux := prepare()
+	mux, _ := prepare()
 	negotiateResponse, err := doNegotiate(mux)
 	if err != nil {
 		t.Fatal(err)
@@ -265,7 +253,7 @@ func TestCollectReadBodyError(t *testing.T) {
 }
 
 func TestCollectNoBody(t *testing.T) {
-	mux := prepare()
+	mux, _ := prepare()
 	negotiateResponse, err := doNegotiate(mux)
 	if err != nil {
 		t.Fatal(err)
@@ -281,7 +269,7 @@ func TestCollectNoBody(t *testing.T) {
 }
 
 func TestCollectMarshalJSONError(t *testing.T) {
-	mux := prepare()
+	mux, handler := prepare()
 	negotiateResponse, err := doNegotiate(mux)
 	if err != nil {
 		t.Fatal(err)
@@ -292,12 +280,10 @@ func TestCollectMarshalJSONError(t *testing.T) {
 		Reader: strings.NewReader("[]"),
 	})
 	writer := httptest.NewRecorder()
-	savedfunc := mockable.MarshalJSON
-	mockable.MarshalJSON = func(v interface{}) ([]byte, error) {
+	handler.Dependencies.JSONMarshal = func(v interface{}) ([]byte, error) {
 		return nil, mocks.ErrMocked
 	}
 	mux.ServeHTTP(writer, req)
-	mockable.MarshalJSON = savedfunc
 	resp := writer.Result()
 	if resp.StatusCode != 500 {
 		t.Fatal("Expected different status code")
@@ -305,7 +291,7 @@ func TestCollectMarshalJSONError(t *testing.T) {
 }
 
 func TestCollectGood(t *testing.T) {
-	mux := prepare()
+	mux, _ := prepare()
 	negotiateResponse, err := doNegotiate(mux)
 	if err != nil {
 		t.Fatal(err)
@@ -328,7 +314,7 @@ func TestReaper(t *testing.T) {
 		t.Skip("Skipping this test in short mode")
 	}
 	log.SetLevel(log.DebugLevel)
-	mux, handler := prepareEx()
+	mux, handler := prepare()
 	handler.Logger = log.Log
 	ctx, cancel := context.WithCancel(context.Background())
 	handler.StartReaper(ctx)

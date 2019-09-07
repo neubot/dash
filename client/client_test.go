@@ -3,6 +3,7 @@ package client_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -11,7 +12,6 @@ import (
 	"testing"
 
 	dash "github.com/neubot/dash/client"
-	"github.com/neubot/dash/internal/mockable"
 	"github.com/neubot/dash/internal/mocks"
 )
 
@@ -140,12 +140,10 @@ func TestNegotiateMarshalJSONError(t *testing.T) {
 	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
 		mlabnsSuccessfulResponse(),
 	)
-	savedfunc := mockable.MarshalJSON
-	mockable.MarshalJSON = func(v interface{}) ([]byte, error) {
+	clnt.Dependencies.JSONMarshal = func(v interface{}) ([]byte, error) {
 		return nil, mocks.ErrMocked
 	}
 	ch, err := clnt.StartDownload(context.Background())
-	mockable.MarshalJSON = savedfunc
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,12 +161,10 @@ func TestNegotiateHTTPNewRequestError(t *testing.T) {
 	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
 		mlabnsSuccessfulResponse(),
 	)
-	savedfunc := mockable.HTTPNewRequest
-	mockable.HTTPNewRequest = func(method string, url string, body io.Reader) (*http.Request, error) {
+	clnt.Dependencies.HTTPNewRequest = func(method string, url string, body io.Reader) (*http.Request, error) {
 		return nil, mocks.ErrMocked
 	}
 	ch, err := clnt.StartDownload(context.Background())
-	mockable.HTTPNewRequest = savedfunc
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,16 +292,14 @@ func TestDownloadHTTPNewRequestError(t *testing.T) {
 		mocks.NewHTTPRoundTripFailure(expectedFirstDownloadURL),
 	)
 	var calls int
-	savedfunc := mockable.HTTPNewRequest
-	mockable.HTTPNewRequest = func(method string, url string, body io.Reader) (*http.Request, error) {
+	clnt.Dependencies.HTTPNewRequest = func(method string, url string, body io.Reader) (*http.Request, error) {
 		if calls <= 0 {
 			calls++
-			return savedfunc(method, url, body)
+			return http.NewRequest(method, url, body)
 		}
 		return nil, mocks.ErrMocked
 	}
 	ch, err := clnt.StartDownload(context.Background())
-	mockable.HTTPNewRequest = savedfunc
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,16 +390,14 @@ func TestCollectMarshalJSONError(t *testing.T) {
 		mocks.NewHTTPRoundTripFailure(expectedCollectURL),
 	)
 	var calls int
-	savedfunc := mockable.MarshalJSON
-	mockable.MarshalJSON = func(v interface{}) ([]byte, error) {
+	clnt.Dependencies.JSONMarshal = func(v interface{}) ([]byte, error) {
 		if calls <= 0 {
 			calls++
-			return savedfunc(v)
+			return json.Marshal(v)
 		}
 		return nil, mocks.ErrMocked
 	}
 	ch, err := clnt.StartDownload(context.Background())
-	mockable.MarshalJSON = savedfunc
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,16 +426,14 @@ func TestCollectHTTPNewRequest(t *testing.T) {
 		mocks.NewHTTPRoundTripFailure(expectedCollectURL),
 	)
 	var calls int
-	savedfunc := mockable.HTTPNewRequest
-	mockable.HTTPNewRequest = func(method string, url string, body io.Reader) (*http.Request, error) {
+	clnt.Dependencies.HTTPNewRequest = func(method string, url string, body io.Reader) (*http.Request, error) {
 		if calls <= 1 {
 			calls++
-			return savedfunc(method, url, body)
+			return http.NewRequest(method, url, body)
 		}
 		return nil, mocks.ErrMocked
 	}
 	ch, err := clnt.StartDownload(context.Background())
-	mockable.HTTPNewRequest = savedfunc
 	if err != nil {
 		t.Fatal(err)
 	}

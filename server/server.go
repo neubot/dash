@@ -19,7 +19,7 @@ import (
 
 	"github.com/neubot/dash/common"
 	"github.com/neubot/dash/internal"
-	"github.com/neubot/dash/internal/mockable"
+	"github.com/neubot/dash/mockable"
 )
 
 type sessionInfo struct {
@@ -32,6 +32,10 @@ type sessionInfo struct {
 type Handler struct {
 	// Datadir is the directory where to save measurements
 	Datadir string
+
+	// Dependencies contains mockable dependencies. Usually you don't
+	// want to touch them unless you're into unit testing.
+	Dependencies mockable.Dependencies
 
 	// Logger is the logger to use. This field is initialized by the
 	// NewHandler constructor to a do-nothing logger.
@@ -50,6 +54,7 @@ type Handler struct {
 func NewHandler(datadir string) *Handler {
 	return &Handler{
 		Datadir:       datadir,
+		Dependencies:  mockable.NewDependencies(),
 		Logger:        internal.NoLogger{},
 		MaxIterations: 17,
 		sessions:      make(map[string]*sessionInfo),
@@ -152,7 +157,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
-	UUID, err := mockable.NewRandomUUID()
+	UUID, err := h.Dependencies.UUIDNewRandom()
 	if err != nil {
 		w.WriteHeader(500)
 		return
@@ -166,7 +171,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 	//
 	// A side effect of this implementation choice is that we are now
 	// tolerating incoming requests that do not contain any body.
-	data, err := mockable.MarshalJSON(common.NegotiateResponse{
+	data, err := h.Dependencies.JSONMarshal(common.NegotiateResponse{
 		Authorization: UUID.String(),
 		QueuePos:      0,
 		RealAddress:   address,
@@ -241,7 +246,7 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	once.Do(func() {
 		rand.Seed(time.Now().UTC().UnixNano())
 	})
-	_, err = mockable.RandRead(data)
+	_, err = h.Dependencies.RandRead(data)
 	if err != nil {
 		w.WriteHeader(500)
 		return
@@ -299,7 +304,7 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		return
 	}
-	data, err = mockable.MarshalJSON(session.serverSchema.Server)
+	data, err = h.Dependencies.JSONMarshal(session.serverSchema.Server)
 	if err != nil {
 		w.WriteHeader(500)
 		return

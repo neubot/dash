@@ -11,10 +11,15 @@ const (
 	// NegotiatePath is the URL path used to negotiate
 	NegotiatePath = "/negotiate/dash"
 
+	// DownloadPathNoTrailingSlash is like DownloadPath but has no
+	// trailing slash. For historical reasons we also need to handle
+	// this path in addition to DownloadPath.
+	DownloadPathNoTrailingSlash = "/dash/download"
+
 	// DownloadPath is the URL path used to request DASH segments. You can
 	// append to this path an integer indicating how many bytes you would like
 	// the server to send you as part of the next chunk.
-	DownloadPath = "/dash/download/"
+	DownloadPath = DownloadPathNoTrailingSlash + "/"
 
 	// CollectPath is the URL path used to collect
 	CollectPath = "/collect/dash"

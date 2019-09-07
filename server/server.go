@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -18,9 +19,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/neubot/dash/common"
+	"github.com/neubot/dash/internal"
 )
 
-type resultsRecord struct {
+type sessionInfo struct {
 	iteration    int64
 	serverSchema common.ServerSchema
 	stamp        time.Time
@@ -31,21 +33,28 @@ type Handler struct {
 	// Datadir is the directory where to save measurements
 	Datadir string
 
-	mtx     sync.Mutex
-	records map[string]*resultsRecord
+	// Logger is the logger to use. This field is initialized by the
+	// NewHandler constructor to a do-nothing logger.
+	Logger common.Logger
+
+	mtx      sync.Mutex
+	sessions map[string]*sessionInfo
+	stop     chan interface{}
 }
 
 // NewHandler creates a new handler instance
 func NewHandler(datadir string) *Handler {
 	return &Handler{
-		Datadir: datadir,
-		records: make(map[string]*resultsRecord),
+		Datadir:  datadir,
+		Logger:   internal.NoLogger{},
+		sessions: make(map[string]*sessionInfo),
+		stop:     make(chan interface{}),
 	}
 }
 
-func (h *Handler) createRecord(UUID string) {
+func (h *Handler) createSession(UUID string) {
 	now := time.Now()
-	record := &resultsRecord{
+	session := &sessionInfo{
 		stamp: now,
 		serverSchema: common.ServerSchema{
 			ServerSchemaVersion: common.CurrentServerSchemaVersion,
@@ -54,51 +63,67 @@ func (h *Handler) createRecord(UUID string) {
 	}
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
-	h.records[UUID] = record
+	h.sessions[UUID] = session
 }
 
-func (h *Handler) updateRecord(UUID string, count int) (ok bool) {
-	now := time.Now()
+func (h *Handler) haveSession(UUID string) (ok bool) {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
-	record, ok := h.records[UUID]
-	if ok {
-		record.serverSchema.Server = append(
-			record.serverSchema.Server, common.ServerResults{
-				Iteration: record.iteration,
-				Ticks:     now.Sub(record.stamp).Seconds(),
-				Timestamp: now.Unix(),
-			},
-		)
-		record.iteration++
-	}
+	_, ok = h.sessions[UUID]
 	return
 }
 
-func (h *Handler) popRecord(UUID string) *resultsRecord {
+func (h *Handler) updateSession(UUID string, count int) {
+	now := time.Now()
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
-	record, ok := h.records[UUID]
+	session, ok := h.sessions[UUID]
+	if ok {
+		session.serverSchema.Server = append(
+			session.serverSchema.Server, common.ServerResults{
+				Iteration: session.iteration,
+				Ticks:     now.Sub(session.stamp).Seconds(),
+				Timestamp: now.Unix(),
+			},
+		)
+		session.iteration++
+	}
+}
+
+func (h *Handler) popSession(UUID string) *sessionInfo {
+	h.mtx.Lock()
+	defer h.mtx.Unlock()
+	session, ok := h.sessions[UUID]
 	if ok == false {
 		return nil
 	}
-	delete(h.records, UUID)
-	return record
+	delete(h.sessions, UUID)
+	return session
 }
 
-func (h *Handler) reapStaleRecords() {
+// CountSessions counts the number of open sessions.
+func (h *Handler) CountSessions() (count int) {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
+	count = len(h.sessions)
+	return
+}
+
+func (h *Handler) reapStaleSessions() {
+	h.mtx.Lock()
+	defer h.mtx.Unlock()
+	h.Logger.Debugf("reaper: inspecting %d sessions", len(h.sessions))
 	now := time.Now()
 	var stale []string
-	for UUID, record := range h.records {
+	for UUID, session := range h.sessions {
 		const toomuch = 60 * time.Second
-		if now.Sub(record.stamp) > toomuch {
+		if now.Sub(session.stamp) > toomuch {
 			stale = append(stale, UUID)
 		}
 	}
+	h.Logger.Debugf("reaper: reaping %d stale sessions", len(stale))
 	for _, UUID := range stale {
-		delete(h.records, UUID)
+		delete(h.sessions, UUID)
 	}
 }
 
@@ -119,6 +144,9 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 	// thing is bad anyway, because clients may not upgrade. To escape
 	// from this limitation, we use a different strategy in this code
 	// where we pick any client chosen value within a specific range.
+	//
+	// A side effect of this implementation choice is that we are now
+	// tolerating incoming requests that do not contain any body.
 	data, err := json.Marshal(common.NegotiateResponse{
 		Authorization: UUID.String(),
 		QueuePos:      0,
@@ -131,24 +159,37 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if _, err := w.Write(data); err == nil {
-		h.createRecord(UUID.String())
+		h.createSession(UUID.String())
 	}
 }
 
-const authorization = "Authorization"
+const (
+	// MinSize is the minimum segment size that this server can return.
+	//
+	// The client requests two second chunks. The minimum emulated streaming
+	// speed is the minimum streaming speed (in kbit/s) multiplied by 1000
+	// to obtain bit/s, divided by 8 to obtain bytes/s and multiplied by the
+	// two seconds to obtain the minimum segment size.
+	MinSize = 100 * 1000 / 8 * 2
 
-var once sync.Once
+	// MaxSize is the maximum segment size that this server can return. See
+	// the docs of MinSize for more information on how it is computed.
+	MaxSize = 20000 * 1000 / 8 * 2
+
+	authorization = "Authorization"
+)
+
+var (
+	once          sync.Once
+	minSizeString = fmt.Sprintf("%d", MinSize)
+)
 
 func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
-	// The client requests two second chunks. The minimum emulated streaming
-	// speed is 100 kbit/s. The maximum is 20,000 kbit/s. Here we use as
-	// minimum and maximum the conversion of such values in bytes. Everything
-	// that is outside this range is coerced in this range.
-	const (
-		minSize       = 100 * 1000 / 8 * 2
-		minSizeString = string(minSize)
-		maxSize       = 20000 * 1000 / 8 * 2
-	)
+	sessionID := r.Header.Get(authorization)
+	if h.haveSession(sessionID) == false {
+		w.WriteHeader(400)
+		return
+	}
 	siz := strings.Replace(r.URL.Path, "/dash/download", "", -1)
 	if strings.HasPrefix(siz, "/") {
 		siz = siz[1:]
@@ -161,16 +202,13 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		return
 	}
-	if count < minSize {
-		count = minSize
+	if count < MinSize {
+		count = MinSize
 	}
-	if count > maxSize {
-		count = maxSize
+	if count > MaxSize {
+		count = MaxSize
 	}
-	if h.updateRecord(r.Header.Get(authorization), count) == false {
-		w.WriteHeader(400)
-		return
-	}
+	h.updateSession(sessionID, count)
 	data := make([]byte, count)
 	once.Do(func() {
 		rand.Seed(time.Now().UTC().UnixNano())
@@ -190,13 +228,13 @@ type resultsFile struct {
 	fp     *os.File
 }
 
-func (h *Handler) savedata(record *resultsRecord) error {
-	name := path.Join(h.Datadir, record.stamp.Format("2006/01/02"))
+func (h *Handler) savedata(session *sessionInfo) error {
+	name := path.Join(h.Datadir, session.stamp.Format("2006/01/02"))
 	err := os.MkdirAll(name, 0755)
 	if err != nil {
 		return err
 	}
-	name += "/neubot-dash-" + record.stamp.Format("20060102T150405.000000000Z") + ".json.gz"
+	name += "/neubot-dash-" + session.stamp.Format("20060102T150405.000000000Z") + ".json.gz"
 	// My assumption here is that we have nanosecond precision and hence it's
 	// unlikely to have conflicts. If I'm wrong, O_EXCL will let us know.
 	filep, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
@@ -209,7 +247,7 @@ func (h *Handler) savedata(record *resultsRecord) error {
 		return err
 	}
 	defer zipper.Close()
-	data, err := json.Marshal(record.serverSchema)
+	data, err := json.Marshal(session.serverSchema)
 	if err != nil {
 		return err
 	}
@@ -218,8 +256,8 @@ func (h *Handler) savedata(record *resultsRecord) error {
 }
 
 func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
-	record := h.popRecord(r.Header.Get(authorization))
-	if record == nil {
+	session := h.popSession(r.Header.Get(authorization))
+	if session == nil {
 		w.WriteHeader(400)
 		return
 	}
@@ -228,17 +266,17 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		return
 	}
-	err = json.Unmarshal(data, &record.serverSchema.Client)
+	err = json.Unmarshal(data, &session.serverSchema.Client)
 	if err != nil {
 		w.WriteHeader(400)
 		return
 	}
-	data, err = json.Marshal(record.serverSchema.Server)
+	data, err = json.Marshal(session.serverSchema.Server)
 	if err != nil {
 		w.WriteHeader(400)
 		return
 	}
-	err = h.savedata(record)
+	err = h.savedata(session)
 	if err != nil {
 		w.WriteHeader(500)
 		return
@@ -262,15 +300,22 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc(common.NegotiatePath, h.negotiate)
 	mux.HandleFunc(common.DownloadPath, h.download)
+	mux.HandleFunc(common.DownloadPathNoTrailingSlash, h.download)
 	mux.HandleFunc(common.CollectPath, h.collect)
 }
 
 func (h *Handler) reaperLoop(ctx context.Context) {
+	defer close(h.stop)
 	for ctx.Err() == nil {
 		const reapInterval = 14 * time.Second
 		time.Sleep(reapInterval)
-		h.reapStaleRecords()
+		h.reapStaleSessions()
 	}
+}
+
+// JoinReaper blocks until the reaper has terminated
+func (h *Handler) JoinReaper() {
+	<-h.stop
 }
 
 // StartReaper starts the reaper goroutine that makes sure that

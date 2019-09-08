@@ -208,6 +208,25 @@ var (
 	minSizeString = fmt.Sprintf("%d", MinSize)
 )
 
+func (h *Handler) genbody(count *int) (data []byte, err error) {
+	// Implementation note: because one may be lax during refactoring
+	// and may end up using count rather than len(data) and because
+	// count may be way bigger than the real data length, I've changed
+	// this function to _also_ update count to the real value.
+	once.Do(func() {
+		rand.Seed(time.Now().UTC().UnixNano())
+	})
+	if *count < MinSize {
+		*count = MinSize
+	}
+	if *count > MaxSize {
+		*count = MaxSize
+	}
+	data = make([]byte, *count)
+	_, err = h.Dependencies.RandRead(data)
+	return
+}
+
 func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get(authorization)
 	state := h.getSessionState(sessionID)
@@ -235,22 +254,12 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		return
 	}
-	if count < MinSize {
-		count = MinSize
-	}
-	if count > MaxSize {
-		count = MaxSize
-	}
-	h.updateSession(sessionID, count)
-	data := make([]byte, count)
-	once.Do(func() {
-		rand.Seed(time.Now().UTC().UnixNano())
-	})
-	_, err = h.Dependencies.RandRead(data)
+	data, err := h.genbody(&count)
 	if err != nil {
 		w.WriteHeader(500)
 		return
 	}
+	h.updateSession(sessionID, len(data))
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.Write(data)

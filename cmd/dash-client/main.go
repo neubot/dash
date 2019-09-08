@@ -40,7 +40,7 @@ var (
 		"timeout", defaultTimeout, "time after which the test is aborted")
 )
 
-func main() {
+func internalmain() error {
 	log.SetLevel(log.DebugLevel)
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), *flagTimeout)
@@ -50,21 +50,28 @@ func main() {
 	client.FQDN = *flagHostname
 	ch, err := client.StartDownload(ctx)
 	if err != nil {
-		log.WithError(err).Fatal("StartDownload failed")
+		return err
 	}
 	for results := range ch {
 		data, err := json.Marshal(results)
 		if err != nil {
-			log.WithError(err).Fatal("json.Marshal failed")
+			return err
 		}
 		fmt.Printf("%s\n", string(data))
 	}
 	if client.Error() != nil {
-		log.WithError(client.Error()).Fatal("the download failed")
+		return err
 	}
 	data, err := json.Marshal(client.ServerResults())
 	if err != nil {
-		log.WithError(err).Fatal("json.Marshal failed")
+		return err
 	}
 	fmt.Printf("%s\n", string(data))
+	return nil
+}
+
+func main() {
+	if err := internalmain(); err != nil {
+		log.WithError(err).Fatal("DASH experiment failed")
+	}
 }

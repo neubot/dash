@@ -453,7 +453,7 @@ func TestServerReaper(t *testing.T) {
 	for i := 0; i < 17; i++ {
 		handler.createSession(fmt.Sprintf("%d", i))
 	}
-	for handler.countSessions() > 0 {
+	for handler.CountSessions() > 0 {
 		time.Sleep(1 * time.Second)
 	}
 	cancel()

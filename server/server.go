@@ -141,7 +141,8 @@ func (h *Handler) popSession(UUID string) *sessionInfo {
 	return session
 }
 
-func (h *Handler) countSessions() (count int) {
+// CountSessions return the number of active sessions
+func (h *Handler) CountSessions() (count int) {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
 	count = len(h.sessions)

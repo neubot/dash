@@ -21,7 +21,7 @@ import (
 	"log"
 	"net/http"
 
-	dash "github.com/neubot/dash/server"
+	"github.com/neubot/dash/server"
 )
 
 var (
@@ -32,7 +32,7 @@ var (
 func main() {
 	flag.Parse()
 	mux := http.NewServeMux()
-	handler := dash.NewHandler(*flagDatadir)
+	handler := server.NewHandler(*flagDatadir)
 	handler.StartReaper(context.Background())
 	handler.RegisterHandlers(mux)
 	log.Fatal(http.ListenAndServe(*flagEndpoint, mux))

@@ -59,7 +59,7 @@ type NegotiateResponse struct {
 // Logger defines the common interface that a logger should have. It is
 // out of the box compatible with `log.Log` in `apex/log`.
 //
-// This interface is copied from github.com/m-lab/ndt7-client-go.
+// This interface is copied from github.com/ooni/probe-engine
 type Logger interface {
 	// Debug emits a debug message.
 	Debug(msg string)

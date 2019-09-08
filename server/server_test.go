@@ -17,7 +17,7 @@ import (
 
 	"github.com/apex/log"
 	"github.com/google/uuid"
-	"github.com/neubot/dash/common"
+	"github.com/neubot/dash/model"
 )
 
 func TestServerNegotiate(t *testing.T) {
@@ -76,7 +76,7 @@ func TestServerNegotiate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var msg common.NegotiateResponse
+		var msg model.NegotiateResponse
 		err = json.Unmarshal(data, &msg)
 		if err != nil {
 			t.Fatal(err)

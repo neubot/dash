@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/apex/log"
-	dash "github.com/neubot/dash/client"
+	"github.com/neubot/dash/client"
 )
 
 const (
@@ -45,7 +45,7 @@ func main() {
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), *flagTimeout)
 	defer cancel()
-	client := dash.NewClient(clientName, clientVersion)
+	client := client.New(clientName, clientVersion)
 	client.Logger = log.Log
 	client.FQDN = *flagHostname
 	ch, err := client.StartDownload(ctx)

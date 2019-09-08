@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/neubot/dash/common"
+	"github.com/neubot/dash/model"
 )
 
 const (
@@ -139,7 +139,7 @@ func TestClientDownload(t *testing.T) {
 		) (*http.Request, error) {
 			return nil, errors.New("Mocked error")
 		}
-		current := new(common.ClientResults)
+		current := new(model.ClientResults)
 		err := client.download(context.Background(), "abc", current)
 		if err == nil {
 			t.Fatal("Expected an error here")
@@ -151,7 +151,7 @@ func TestClientDownload(t *testing.T) {
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return nil, errors.New("Mocked error")
 		}
-		current := new(common.ClientResults)
+		current := new(model.ClientResults)
 		err := client.download(context.Background(), "abc", current)
 		if err == nil {
 			t.Fatal("Expected an error here")
@@ -165,7 +165,7 @@ func TestClientDownload(t *testing.T) {
 				StatusCode: 404,
 			}, nil
 		}
-		current := new(common.ClientResults)
+		current := new(model.ClientResults)
 		err := client.download(context.Background(), "abc", current)
 		if err == nil {
 			t.Fatal("Expected an error here")
@@ -183,7 +183,7 @@ func TestClientDownload(t *testing.T) {
 		client.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
 			return nil, errors.New("Mocked error")
 		}
-		current := new(common.ClientResults)
+		current := new(model.ClientResults)
 		err := client.download(context.Background(), "abc", current)
 		if err == nil {
 			t.Fatal("Expected an error here")
@@ -198,7 +198,7 @@ func TestClientDownload(t *testing.T) {
 				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
-		current := new(common.ClientResults)
+		current := new(model.ClientResults)
 		err := client.download(context.Background(), "abc", current)
 		if err != nil {
 			t.Fatal(err)
@@ -303,10 +303,10 @@ func TestClientCollect(t *testing.T) {
 
 func TestClientLoop(t *testing.T) {
 	t.Run("negotiate failure", func(t *testing.T) {
-		ch := make(chan common.ClientResults)
+		ch := make(chan model.ClientResults)
 		client := New(softwareName, softwareVersion)
-		client.deps.Negotiate = func(ctx context.Context) (common.NegotiateResponse, error) {
-			return common.NegotiateResponse{}, errors.New("Mocked error")
+		client.deps.Negotiate = func(ctx context.Context) (model.NegotiateResponse, error) {
+			return model.NegotiateResponse{}, errors.New("Mocked error")
 		}
 		client.loop(context.Background(), ch)
 		if client.err == nil {
@@ -315,13 +315,13 @@ func TestClientLoop(t *testing.T) {
 	})
 
 	t.Run("download failure", func(t *testing.T) {
-		ch := make(chan common.ClientResults)
+		ch := make(chan model.ClientResults)
 		client := New(softwareName, softwareVersion)
-		client.deps.Negotiate = func(ctx context.Context) (common.NegotiateResponse, error) {
-			return common.NegotiateResponse{}, nil
+		client.deps.Negotiate = func(ctx context.Context) (model.NegotiateResponse, error) {
+			return model.NegotiateResponse{}, nil
 		}
 		client.deps.Download = func(
-			ctx context.Context, authorization string, current *common.ClientResults,
+			ctx context.Context, authorization string, current *model.ClientResults,
 		) error {
 			return errors.New("Mocked error")
 		}
@@ -332,13 +332,13 @@ func TestClientLoop(t *testing.T) {
 	})
 
 	t.Run("collect failure", func(t *testing.T) {
-		ch := make(chan common.ClientResults)
+		ch := make(chan model.ClientResults)
 		client := New(softwareName, softwareVersion)
-		client.deps.Negotiate = func(ctx context.Context) (common.NegotiateResponse, error) {
-			return common.NegotiateResponse{}, nil
+		client.deps.Negotiate = func(ctx context.Context) (model.NegotiateResponse, error) {
+			return model.NegotiateResponse{}, nil
 		}
 		client.deps.Download = func(
-			ctx context.Context, authorization string, current *common.ClientResults,
+			ctx context.Context, authorization string, current *model.ClientResults,
 		) error {
 			return nil
 		}
@@ -378,7 +378,7 @@ func TestClientStartDownload(t *testing.T) {
 
 	t.Run("common case", func(t *testing.T) {
 		client := New(softwareName, softwareVersion)
-		client.deps.Loop = func(ctx context.Context, ch chan<- common.ClientResults) {
+		client.deps.Loop = func(ctx context.Context, ch chan<- model.ClientResults) {
 			close(ch)
 		}
 		ch, err := client.StartDownload(context.Background())

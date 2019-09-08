@@ -15,8 +15,9 @@ import (
 	"time"
 
 	"github.com/m-lab/ndt7-client-go/mlabns"
-	"github.com/neubot/dash/common"
 	"github.com/neubot/dash/internal"
+	"github.com/neubot/dash/model"
+	"github.com/neubot/dash/spec"
 )
 
 const (
@@ -44,14 +45,14 @@ type dependencies struct {
 	Collect  func(ctx context.Context, authorization string) error
 	Download func(
 		ctx context.Context, authorization string,
-		current *common.ClientResults) error
+		current *model.ClientResults) error
 	HTTPClientDo   func(req *http.Request) (*http.Response, error)
 	HTTPNewRequest func(method, url string, body io.Reader) (*http.Request, error)
 	IOUtilReadAll  func(r io.Reader) ([]byte, error)
 	JSONMarshal    func(v interface{}) ([]byte, error)
 	Locate         func(ctx context.Context) (string, error)
-	Loop           func(ctx context.Context, ch chan<- common.ClientResults)
-	Negotiate      func(ctx context.Context) (common.NegotiateResponse, error)
+	Loop           func(ctx context.Context, ch chan<- model.ClientResults)
+	Negotiate      func(ctx context.Context) (model.NegotiateResponse, error)
 }
 
 // Client is a DASH client
@@ -74,19 +75,19 @@ type Client struct {
 
 	// Logger is the logger to use. This field is initialized by the
 	// NewClient constructor to a do-nothing logger.
-	Logger common.Logger
+	Logger model.Logger
 
 	// MLabNSClient is the mlabns client. We'll configure it with
 	// defaults in NewClient and you may override it.
 	MLabNSClient *mlabns.Client
 
 	begin         time.Time
-	clientResults []common.ClientResults
+	clientResults []model.ClientResults
 	deps          dependencies
 	err           error
 	numIterations int64
 	scheme        string
-	serverResults []common.ServerResults
+	serverResults []model.ServerResults
 	userAgent     string
 }
 
@@ -134,10 +135,10 @@ func New(clientName, clientVersion string) (client *Client) {
 // negotiate is the preliminary phase of Neubot experiment where we connect
 // to the server, negotiate test parameters, and obtain an authorization
 // token that will be used by us and by the server to identify this experiment.
-func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error) {
-	var negotiateResponse common.NegotiateResponse
-	data, err := c.deps.JSONMarshal(common.NegotiateRequest{
-		DASHRates: common.DefaultRates,
+func (c *Client) negotiate(ctx context.Context) (model.NegotiateResponse, error) {
+	var negotiateResponse model.NegotiateResponse
+	data, err := c.deps.JSONMarshal(model.NegotiateRequest{
+		DASHRates: spec.DefaultRates,
 	})
 	if err != nil {
 		return negotiateResponse, err
@@ -146,7 +147,7 @@ func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error
 	var URL url.URL
 	URL.Scheme = c.scheme
 	URL.Host = c.FQDN
-	URL.Path = common.NegotiatePath
+	URL.Path = spec.NegotiatePath
 	req, err := c.deps.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
 	if err != nil {
 		return negotiateResponse, err
@@ -190,13 +191,13 @@ func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error
 // then we return the measured performance of this segment to the caller. This
 // is repeated several times to emulate downloading part of a video.
 func (c *Client) download(
-	ctx context.Context, authorization string, current *common.ClientResults,
+	ctx context.Context, authorization string, current *model.ClientResults,
 ) error {
 	nbytes := (current.Rate * 1000 * current.ElapsedTarget) >> 3
 	var URL url.URL
 	URL.Scheme = c.scheme
 	URL.Host = c.FQDN
-	URL.Path = fmt.Sprintf("%s%d", common.DownloadPath, nbytes)
+	URL.Path = fmt.Sprintf("%s%d", spec.DownloadPath, nbytes)
 	req, err := c.deps.HTTPNewRequest("GET", URL.String(), nil)
 	if err != nil {
 		return err
@@ -243,7 +244,7 @@ func (c *Client) collect(ctx context.Context, authorization string) error {
 	var URL url.URL
 	URL.Scheme = c.scheme
 	URL.Host = c.FQDN
-	URL.Path = common.CollectPath
+	URL.Path = spec.CollectPath
 	req, err := c.deps.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
 	if err != nil {
 		return err
@@ -276,13 +277,13 @@ func (c *Client) collect(ctx context.Context, authorization string) error {
 
 // loop is the main loop of the DASH test. It performs negotiation, the test
 // proper, and then collection. It posts interim results on |ch|.
-func (c *Client) loop(ctx context.Context, ch chan<- common.ClientResults) {
+func (c *Client) loop(ctx context.Context, ch chan<- model.ClientResults) {
 	defer close(ch)
 	// Implementation note: we will soon refactor the server to eliminate the
 	// possiblity of keeping clients in queue. For this reason it's becoming
 	// increasingly less important to loop waiting for the ready signal. Hence
 	// if the server is busy, we just return a well known error.
-	var negotiateResponse common.NegotiateResponse
+	var negotiateResponse model.NegotiateResponse
 	negotiateResponse, c.err = c.deps.Negotiate(ctx)
 	if c.err != nil {
 		return
@@ -292,7 +293,7 @@ func (c *Client) loop(ctx context.Context, ch chan<- common.ClientResults) {
 	//
 	// See: <https://help.netflix.com/en/node/306>.
 	const initialBitrate = 3000
-	current := common.ClientResults{
+	current := model.ClientResults{
 		ElapsedTarget: 2,
 		Platform:      runtime.GOOS,
 		Rate:          initialBitrate,
@@ -322,7 +323,7 @@ func (c *Client) loop(ctx context.Context, ch chan<- common.ClientResults) {
 // results on the returned channel, then maybe it means the experiment
 // has somehow worked. You can see if there has been any error during
 // the experiment by using the Error function.
-func (c *Client) StartDownload(ctx context.Context) (<-chan common.ClientResults, error) {
+func (c *Client) StartDownload(ctx context.Context) (<-chan model.ClientResults, error) {
 	if c.FQDN == "" {
 		c.Logger.Debug("dash: discovering server with mlabns")
 		fqdn, err := c.deps.Locate(ctx)
@@ -332,7 +333,7 @@ func (c *Client) StartDownload(ctx context.Context) (<-chan common.ClientResults
 		c.FQDN = fqdn
 	}
 	c.Logger.Debugf("dash: using server: %s", c.FQDN)
-	ch := make(chan common.ClientResults)
+	ch := make(chan model.ClientResults)
 	go c.deps.Loop(ctx, ch)
 	return ch, nil
 }
@@ -347,6 +348,6 @@ func (c *Client) Error() error {
 // ServerResults returns the results of the experiment collected by the
 // server. In case Error() returns non nil, this function will typically
 // return an empty slice to the caller.
-func (c *Client) ServerResults() []common.ServerResults {
+func (c *Client) ServerResults() []model.ServerResults {
 	return c.serverResults
 }

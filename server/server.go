@@ -19,13 +19,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/neubot/dash/common"
 	"github.com/neubot/dash/internal"
+	"github.com/neubot/dash/model"
+	"github.com/neubot/dash/spec"
 )
 
 type sessionInfo struct {
 	iteration    int64
-	serverSchema common.ServerSchema
+	serverSchema model.ServerSchema
 	stamp        time.Time
 }
 type dependencies struct {
@@ -46,7 +47,7 @@ type Handler struct {
 
 	// Logger is the logger to use. This field is initialized by the
 	// NewHandler constructor to a do-nothing logger.
-	Logger common.Logger
+	Logger model.Logger
 
 	deps          dependencies
 	maxIterations int64
@@ -81,8 +82,8 @@ func (h *Handler) createSession(UUID string) {
 	now := time.Now()
 	session := &sessionInfo{
 		stamp: now,
-		serverSchema: common.ServerSchema{
-			ServerSchemaVersion: common.CurrentServerSchemaVersion,
+		serverSchema: model.ServerSchema{
+			ServerSchemaVersion: spec.CurrentServerSchemaVersion,
 			ServerTimestamp:     now.Unix(),
 		},
 	}
@@ -119,7 +120,7 @@ func (h *Handler) updateSession(UUID string, count int) {
 	session, ok := h.sessions[UUID]
 	if ok {
 		session.serverSchema.Server = append(
-			session.serverSchema.Server, common.ServerResults{
+			session.serverSchema.Server, model.ServerResults{
 				Iteration: session.iteration,
 				Ticks:     now.Sub(session.stamp).Seconds(),
 				Timestamp: now.Unix(),
@@ -185,7 +186,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 	//
 	// A side effect of this implementation choice is that we are now
 	// tolerating incoming requests that do not contain any body.
-	data, err := h.deps.JSONMarshal(common.NegotiateResponse{
+	data, err := h.deps.JSONMarshal(model.NegotiateResponse{
 		Authorization: UUID.String(),
 		QueuePos:      0,
 		RealAddress:   address,
@@ -353,10 +354,10 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 // used by clients to request data segments. The /collect/dash
 // prefix is used to submit client measurements.
 func (h *Handler) RegisterHandlers(mux *http.ServeMux) {
-	mux.HandleFunc(common.NegotiatePath, h.negotiate)
-	mux.HandleFunc(common.DownloadPath, h.download)
-	mux.HandleFunc(common.DownloadPathNoTrailingSlash, h.download)
-	mux.HandleFunc(common.CollectPath, h.collect)
+	mux.HandleFunc(spec.NegotiatePath, h.negotiate)
+	mux.HandleFunc(spec.DownloadPath, h.download)
+	mux.HandleFunc(spec.DownloadPathNoTrailingSlash, h.download)
+	mux.HandleFunc(spec.CollectPath, h.collect)
 }
 
 func (h *Handler) reaperLoop(ctx context.Context) {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -17,9 +18,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/neubot/dash/common"
 	"github.com/neubot/dash/internal"
-	"github.com/neubot/dash/mockable"
 )
 
 type sessionInfo struct {
@@ -27,39 +28,53 @@ type sessionInfo struct {
 	serverSchema common.ServerSchema
 	stamp        time.Time
 }
+type dependencies struct {
+	GzipNewWriterLevel func(w io.Writer, level int) (*gzip.Writer, error)
+	IOUtilReadAll      func(r io.Reader) ([]byte, error)
+	JSONMarshal        func(v interface{}) ([]byte, error)
+	OSMkdirAll         func(path string, perm os.FileMode) error
+	OSOpenFile         func(name string, flag int, perm os.FileMode) (*os.File, error)
+	RandRead           func(p []byte) (n int, err error)
+	Savedata           func(session *sessionInfo) error
+	UUIDNewRandom      func() (uuid.UUID, error)
+}
 
 // Handler is the DASH handler
 type Handler struct {
 	// Datadir is the directory where to save measurements
 	Datadir string
 
-	// Dependencies contains mockable dependencies. Usually you don't
-	// want to touch them unless you're into unit testing.
-	Dependencies mockable.Dependencies
-
 	// Logger is the logger to use. This field is initialized by the
 	// NewHandler constructor to a do-nothing logger.
 	Logger common.Logger
 
-	// MaxIterations is the maximum number of iterations that this
-	// server is allowing a clients to perform.
-	MaxIterations int64
-
-	mtx      sync.Mutex
-	sessions map[string]*sessionInfo
-	stop     chan interface{}
+	deps          dependencies
+	maxIterations int64
+	mtx           sync.Mutex
+	sessions      map[string]*sessionInfo
+	stop          chan interface{}
 }
 
 // NewHandler creates a new handler instance
-func NewHandler(datadir string) *Handler {
-	return &Handler{
+func NewHandler(datadir string) (handler *Handler) {
+	handler = &Handler{
 		Datadir:       datadir,
-		Dependencies:  mockable.NewDependencies(),
 		Logger:        internal.NoLogger{},
-		MaxIterations: 17,
+		maxIterations: 17,
 		sessions:      make(map[string]*sessionInfo),
 		stop:          make(chan interface{}),
 	}
+	handler.deps = dependencies{
+		GzipNewWriterLevel: gzip.NewWriterLevel,
+		IOUtilReadAll:      ioutil.ReadAll,
+		JSONMarshal:        json.Marshal,
+		OSMkdirAll:         os.MkdirAll,
+		OSOpenFile:         os.OpenFile,
+		RandRead:           rand.Read,
+		Savedata:           handler.savedata,
+		UUIDNewRandom:      uuid.NewRandom,
+	}
+	return
 }
 
 func (h *Handler) createSession(UUID string) {
@@ -91,7 +106,7 @@ func (h *Handler) getSessionState(UUID string) sessionState {
 	if !ok {
 		return sessionMissing
 	}
-	if session.iteration >= h.MaxIterations {
+	if session.iteration >= h.maxIterations {
 		return sessionExpired
 	}
 	return sessionActive
@@ -125,8 +140,7 @@ func (h *Handler) popSession(UUID string) *sessionInfo {
 	return session
 }
 
-// CountSessions counts the number of open sessions.
-func (h *Handler) CountSessions() (count int) {
+func (h *Handler) countSessions() (count int) {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
 	count = len(h.sessions)
@@ -157,7 +171,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
-	UUID, err := h.Dependencies.UUIDNewRandom()
+	UUID, err := h.deps.UUIDNewRandom()
 	if err != nil {
 		w.WriteHeader(500)
 		return
@@ -171,7 +185,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 	//
 	// A side effect of this implementation choice is that we are now
 	// tolerating incoming requests that do not contain any body.
-	data, err := h.Dependencies.JSONMarshal(common.NegotiateResponse{
+	data, err := h.deps.JSONMarshal(common.NegotiateResponse{
 		Authorization: UUID.String(),
 		QueuePos:      0,
 		RealAddress:   address,
@@ -182,30 +196,29 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if _, err := w.Write(data); err == nil {
-		h.createSession(UUID.String())
-	}
+	h.createSession(UUID.String())
+	w.Write(data)
 }
 
 const (
-	// MinSize is the minimum segment size that this server can return.
+	// minSize is the minimum segment size that this server can return.
 	//
 	// The client requests two second chunks. The minimum emulated streaming
 	// speed is the minimum streaming speed (in kbit/s) multiplied by 1000
 	// to obtain bit/s, divided by 8 to obtain bytes/s and multiplied by the
 	// two seconds to obtain the minimum segment size.
-	MinSize = 100 * 1000 / 8 * 2
+	minSize = 100 * 1000 / 8 * 2
 
-	// MaxSize is the maximum segment size that this server can return. See
+	// maxSize is the maximum segment size that this server can return. See
 	// the docs of MinSize for more information on how it is computed.
-	MaxSize = 20000 * 1000 / 8 * 2
+	maxSize = 30000 * 1000 / 8 * 2
 
 	authorization = "Authorization"
 )
 
 var (
 	once          sync.Once
-	minSizeString = fmt.Sprintf("%d", MinSize)
+	minSizeString = fmt.Sprintf("%d", minSize)
 )
 
 func (h *Handler) genbody(count *int) (data []byte, err error) {
@@ -216,14 +229,14 @@ func (h *Handler) genbody(count *int) (data []byte, err error) {
 	once.Do(func() {
 		rand.Seed(time.Now().UTC().UnixNano())
 	})
-	if *count < MinSize {
-		*count = MinSize
+	if *count < minSize {
+		*count = minSize
 	}
-	if *count > MaxSize {
-		*count = MaxSize
+	if *count > maxSize {
+		*count = maxSize
 	}
 	data = make([]byte, *count)
-	_, err = h.Dependencies.RandRead(data)
+	_, err = h.deps.RandRead(data)
 	return
 }
 
@@ -272,24 +285,24 @@ type resultsFile struct {
 
 func (h *Handler) savedata(session *sessionInfo) error {
 	name := path.Join(h.Datadir, session.stamp.Format("2006/01/02"))
-	err := h.Dependencies.OSMkdirAll(name, 0755)
+	err := h.deps.OSMkdirAll(name, 0755)
 	if err != nil {
 		return err
 	}
 	name += "/neubot-dash-" + session.stamp.Format("20060102T150405.000000000Z") + ".json.gz"
 	// My assumption here is that we have nanosecond precision and hence it's
 	// unlikely to have conflicts. If I'm wrong, O_EXCL will let us know.
-	filep, err := h.Dependencies.OSOpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	filep, err := h.deps.OSOpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
 		return err
 	}
 	defer filep.Close()
-	zipper, err := h.Dependencies.GzipNewWriterLevel(filep, gzip.BestSpeed)
+	zipper, err := h.deps.GzipNewWriterLevel(filep, gzip.BestSpeed)
 	if err != nil {
 		return err
 	}
 	defer zipper.Close()
-	data, err := h.Dependencies.JSONMarshal(session.serverSchema)
+	data, err := h.deps.JSONMarshal(session.serverSchema)
 	if err != nil {
 		return err
 	}
@@ -303,7 +316,7 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		return
 	}
-	data, err := ioutil.ReadAll(r.Body)
+	data, err := h.deps.IOUtilReadAll(r.Body)
 	if err != nil {
 		w.WriteHeader(400)
 		return
@@ -313,12 +326,12 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		return
 	}
-	data, err = h.Dependencies.JSONMarshal(session.serverSchema.Server)
+	data, err = h.deps.JSONMarshal(session.serverSchema.Server)
 	if err != nil {
 		w.WriteHeader(500)
 		return
 	}
-	err = h.savedata(session)
+	err = h.deps.Savedata(session)
 	if err != nil {
 		w.WriteHeader(500)
 		return
@@ -355,14 +368,14 @@ func (h *Handler) reaperLoop(ctx context.Context) {
 	}
 }
 
-// JoinReaper blocks until the reaper has terminated
-func (h *Handler) JoinReaper() {
-	<-h.stop
-}
-
 // StartReaper starts the reaper goroutine that makes sure that
 // we write back results of incomplete measurements. This goroutine
 // will terminate when the |ctx| context becomes expired.
 func (h *Handler) StartReaper(ctx context.Context) {
 	go h.reaperLoop(ctx)
+}
+
+// JoinReaper blocks until the reaper has terminated
+func (h *Handler) JoinReaper() {
+	<-h.stop
 }

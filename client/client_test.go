@@ -1,18 +1,17 @@
-package client_test
+package client
 
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 
-	dash "github.com/neubot/dash/client"
-	"github.com/neubot/dash/internal/mocks"
+	"github.com/neubot/dash/common"
 )
 
 const (
@@ -20,575 +19,374 @@ const (
 	softwareVersion = "0.0.1"
 )
 
-const (
-	expectedMlabNSURL  = "https://locate.measurementlab.net/neubot"
-	expectedServerFQDN = "cdn.neubot.org"
-)
-
-var (
-	expectedNegotiateURL = fmt.Sprintf("http://%s/negotiate/dash", expectedServerFQDN)
-
-	expectedFirstDownloadURL = fmt.Sprintf("http://%s/dash/download/750000", expectedServerFQDN)
-
-	expectedCollectURL = fmt.Sprintf("http://%s/collect/dash", expectedServerFQDN)
-)
-
-func mlabnsSuccessfulResponse() mocks.HTTPRoundTripInfo {
-	return mocks.HTTPRoundTripInfo{
-		Error: nil,
-		URL:   expectedMlabNSURL,
-		Response: &http.Response{
-			StatusCode: 200,
-			Body: ioutil.NopCloser(strings.NewReader(
-				fmt.Sprintf(`{"fqdn": "%s"}`, expectedServerFQDN),
-			)),
-		},
-	}
-}
-
-func responseWith404(URL string) mocks.HTTPRoundTripInfo {
-	return mocks.HTTPRoundTripInfo{
-		Error: nil,
-		URL:   URL,
-		Response: &http.Response{
-			StatusCode: 404,
-			Body:       ioutil.NopCloser(strings.NewReader("Not Found")),
-		},
-	}
-}
-
-func responseWithReadBodyError(URL string) mocks.HTTPRoundTripInfo {
-	return mocks.HTTPRoundTripInfo{
-		Error: nil,
-		URL:   URL,
-		Response: &http.Response{
-			StatusCode: 200,
-			Body: ioutil.NopCloser(mocks.ProgrammableReader{
-				Err: mocks.ErrMocked,
-			}),
-		},
-	}
-}
-
-func responseWithInvalidJSON(URL string) mocks.HTTPRoundTripInfo {
-	return mocks.HTTPRoundTripInfo{
-		Error: nil,
-		URL:   URL,
-		Response: &http.Response{
-			StatusCode: 200,
-			Body: ioutil.NopCloser(mocks.ProgrammableReader{
-				Reader: bytes.NewReader([]byte("{")),
-			}),
-		},
-	}
-}
-
-func responseWithEmptyJSON(URL string) mocks.HTTPRoundTripInfo {
-	return mocks.HTTPRoundTripInfo{
-		Error: nil,
-		URL:   URL,
-		Response: &http.Response{
-			StatusCode: 200,
-			Body: ioutil.NopCloser(mocks.ProgrammableReader{
-				Reader: bytes.NewReader([]byte("{}")),
-			}),
-		},
-	}
-}
-
-func goodResponse(URL, body string) mocks.HTTPRoundTripInfo {
-	return mocks.HTTPRoundTripInfo{
-		Error: nil,
-		URL:   URL,
-		Response: &http.Response{
-			StatusCode: 200,
-			Body: ioutil.NopCloser(mocks.ProgrammableReader{
-				Reader: strings.NewReader(body),
-			}),
-		},
-	}
-}
-
-func goodNegotiationResponse() mocks.HTTPRoundTripInfo {
-	return goodResponse(expectedNegotiateURL, fmt.Sprintf(`{
-		"authorization": "DEADBEEF",
-		"unchoked": 1
-	}`))
-}
-
-func goodCollectResponse() mocks.HTTPRoundTripInfo {
-	return goodResponse(expectedCollectURL, fmt.Sprintf(`[{
-		"iteration": 0,
-		"ticks": 1.1,
-		"timestamp": 123456789
-	}]`))
-}
-
-func TestMlabNSFailure(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mocks.NewHTTPRoundTripFailure(expectedMlabNSURL),
-	)
-	_, err := clnt.StartDownload(context.Background())
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
-
-func TestNegotiateMarshalJSONError(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.Dependencies.JSONMarshal = func(v interface{}) ([]byte, error) {
-		return nil, mocks.ErrMocked
-	}
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range ch {
-		t.Fatal("Did not expect a meaurement here")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
-
-func TestNegotiateHTTPNewRequestError(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.Dependencies.HTTPNewRequest = func(method string, url string, body io.Reader) (*http.Request, error) {
-		return nil, mocks.ErrMocked
-	}
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range ch {
-		t.Fatal("Did not expect a meaurement here")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
-
-func TestNegotiateRequestError(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		mocks.NewHTTPRoundTripFailure(expectedNegotiateURL),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range ch {
-		t.Fatal("Did not expect a meaurement here")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
-
-func TestNegotiate404Error(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		responseWith404(expectedNegotiateURL),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range ch {
-		t.Fatal("Did not expect a meaurement here")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
-
-func TestNegotiateReadBodyError(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		responseWithReadBodyError(expectedNegotiateURL),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range ch {
-		t.Fatal("Did not expect a meaurement here")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
-
-func TestNegotiateJSONParseError(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		responseWithInvalidJSON(expectedNegotiateURL),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range ch {
-		t.Fatal("Did not expect a meaurement here")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
-
-func TestNegotiateNotAuthorized(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		responseWithEmptyJSON(expectedNegotiateURL),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range ch {
-		t.Fatal("Did not expect a meaurement here")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
-
-func TestDownloadHTTPNewRequestError(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		goodNegotiationResponse(),
-		mocks.NewHTTPRoundTripFailure(expectedFirstDownloadURL),
-	)
-	var calls int
-	clnt.Dependencies.HTTPNewRequest = func(method string, url string, body io.Reader) (*http.Request, error) {
-		if calls <= 0 {
-			calls++
-			return http.NewRequest(method, url, body)
+func TestClientNegotiate(t *testing.T) {
+	t.Run("json.Marshal failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
+			return nil, errors.New("Mocked error")
 		}
-		return nil, mocks.ErrMocked
-	}
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range ch {
-		t.Fatal("Did not expect a meaurement here")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
-
-func TestDownloadRequestError(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		goodNegotiationResponse(),
-		mocks.NewHTTPRoundTripFailure(expectedFirstDownloadURL),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range ch {
-		t.Fatal("Did not expect a meaurement here")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
-
-func TestDownloadRequest404(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		goodNegotiationResponse(),
-		responseWith404(expectedFirstDownloadURL),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range ch {
-		t.Fatal("Did not expect a meaurement here")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
-
-func TestDownloadReadBodyError(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		goodNegotiationResponse(),
-		responseWithReadBodyError(expectedFirstDownloadURL),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range ch {
-		t.Fatal("Did not expect a meaurement here")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
-
-func TestCollectMarshalJSONError(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.NumIterations = 1
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		goodNegotiationResponse(),
-		goodResponse(expectedFirstDownloadURL, "VERYSHORTBODY"),
-		mocks.NewHTTPRoundTripFailure(expectedCollectURL),
-	)
-	var calls int
-	clnt.Dependencies.JSONMarshal = func(v interface{}) ([]byte, error) {
-		if calls <= 0 {
-			calls++
-			return json.Marshal(v)
+		_, err := client.negotiate(context.Background())
+		if err == nil {
+			t.Fatal("Expected an error here")
 		}
-		return nil, mocks.ErrMocked
-	}
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	for range ch {
-		count++
-	}
-	if count != 1 {
-		t.Fatal("Expected to see a single measurement")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
+	})
 
-func TestCollectHTTPNewRequest(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.NumIterations = 1
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		goodNegotiationResponse(),
-		goodResponse(expectedFirstDownloadURL, "VERYSHORTBODY"),
-		mocks.NewHTTPRoundTripFailure(expectedCollectURL),
-	)
-	var calls int
-	clnt.Dependencies.HTTPNewRequest = func(method string, url string, body io.Reader) (*http.Request, error) {
-		if calls <= 1 {
-			calls++
-			return http.NewRequest(method, url, body)
+	t.Run("http.NewRequest failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPNewRequest = func(
+			method string, url string, body io.Reader,
+		) (*http.Request, error) {
+			return nil, errors.New("Mocked error")
 		}
-		return nil, mocks.ErrMocked
-	}
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	for range ch {
-		count++
-	}
-	if count != 1 {
-		t.Fatal("Expected to see a single measurement")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
+		_, err := client.negotiate(context.Background())
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("http.Client.Do failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("Mocked error")
+		}
+		_, err := client.negotiate(context.Background())
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("Non successful response", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 404,
+			}, nil
+		}
+		_, err := client.negotiate(context.Background())
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("ioutil.ReadAll failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+			}, nil
+		}
+		client.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+			return nil, errors.New("Mocked error")
+		}
+		_, err := client.negotiate(context.Background())
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("json.Unmarshal failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+			}, nil
+		}
+		_, err := client.negotiate(context.Background())
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("Invalid JSON or not authorized", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Body:       ioutil.NopCloser(strings.NewReader("{}")),
+			}, nil
+		}
+		_, err := client.negotiate(context.Background())
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Body: ioutil.NopCloser(strings.NewReader(`{
+					"Authorization": "0xdeadbeef",
+					"Unchoked": 1
+				}`)),
+			}, nil
+		}
+		_, err := client.negotiate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
-func TestCollectRequestError(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.NumIterations = 1
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		goodNegotiationResponse(),
-		goodResponse(expectedFirstDownloadURL, "VERYSHORTBODY"),
-		mocks.NewHTTPRoundTripFailure(expectedCollectURL),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	for range ch {
-		count++
-	}
-	if count != 1 {
-		t.Fatal("Expected to see a single measurement")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
+func TestClientDownload(t *testing.T) {
+	t.Run("http.NewRequest failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPNewRequest = func(
+			method string, url string, body io.Reader,
+		) (*http.Request, error) {
+			return nil, errors.New("Mocked error")
+		}
+		current := new(common.ClientResults)
+		err := client.download(context.Background(), "abc", current)
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("http.Client.Do failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("Mocked error")
+		}
+		current := new(common.ClientResults)
+		err := client.download(context.Background(), "abc", current)
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("Non successful response", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 404,
+			}, nil
+		}
+		current := new(common.ClientResults)
+		err := client.download(context.Background(), "abc", current)
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("ioutil.ReadAll failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+			}, nil
+		}
+		client.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+			return nil, errors.New("Mocked error")
+		}
+		current := new(common.ClientResults)
+		err := client.download(context.Background(), "abc", current)
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+			}, nil
+		}
+		current := new(common.ClientResults)
+		err := client.download(context.Background(), "abc", current)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
-func TestCollectRequest404(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.NumIterations = 1
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		goodNegotiationResponse(),
-		goodResponse(expectedFirstDownloadURL, "VERYSHORTBODY"),
-		responseWith404(expectedCollectURL),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	for range ch {
-		count++
-	}
-	if count != 1 {
-		t.Fatal("Expected to see a single measurement")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
+func TestClientCollect(t *testing.T) {
+	t.Run("json.Marshal failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
+			return nil, errors.New("Mocked error")
+		}
+		err := client.collect(context.Background(), "abc")
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("http.NewRequest failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPNewRequest = func(
+			method string, url string, body io.Reader,
+		) (*http.Request, error) {
+			return nil, errors.New("Mocked error")
+		}
+		err := client.collect(context.Background(), "abc")
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("http.Client.Do failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("Mocked error")
+		}
+		err := client.collect(context.Background(), "abc")
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("Non successful response", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 404,
+			}, nil
+		}
+		err := client.collect(context.Background(), "abc")
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("ioutil.ReadAll failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+			}, nil
+		}
+		client.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+			return nil, errors.New("Mocked error")
+		}
+		err := client.collect(context.Background(), "abc")
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("json.Unmarshal failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+			}, nil
+		}
+		err := client.collect(context.Background(), "abc")
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Body:       ioutil.NopCloser(strings.NewReader("[]")),
+			}, nil
+		}
+		err := client.collect(context.Background(), "abc")
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
-func TestCollectReadBodyError(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.NumIterations = 1
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		goodNegotiationResponse(),
-		goodResponse(expectedFirstDownloadURL, "VERYSHORTBODY"),
-		responseWithReadBodyError(expectedCollectURL),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	for range ch {
-		count++
-	}
-	if count != 1 {
-		t.Fatal("Expected to see a single measurement")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
+func TestClientLoop(t *testing.T) {
+	t.Run("negotiate failure", func(t *testing.T) {
+		ch := make(chan common.ClientResults)
+		client := New(softwareName, softwareVersion)
+		client.deps.Negotiate = func(ctx context.Context) (common.NegotiateResponse, error) {
+			return common.NegotiateResponse{}, errors.New("Mocked error")
+		}
+		client.loop(context.Background(), ch)
+		if client.err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("download failure", func(t *testing.T) {
+		ch := make(chan common.ClientResults)
+		client := New(softwareName, softwareVersion)
+		client.deps.Negotiate = func(ctx context.Context) (common.NegotiateResponse, error) {
+			return common.NegotiateResponse{}, nil
+		}
+		client.deps.Download = func(
+			ctx context.Context, authorization string, current *common.ClientResults,
+		) error {
+			return errors.New("Mocked error")
+		}
+		client.loop(context.Background(), ch)
+		if client.err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("collect failure", func(t *testing.T) {
+		ch := make(chan common.ClientResults)
+		client := New(softwareName, softwareVersion)
+		client.deps.Negotiate = func(ctx context.Context) (common.NegotiateResponse, error) {
+			return common.NegotiateResponse{}, nil
+		}
+		client.deps.Download = func(
+			ctx context.Context, authorization string, current *common.ClientResults,
+		) error {
+			return nil
+		}
+		client.deps.Collect = func(ctx context.Context, authorization string) error {
+			return errors.New("Mocked error")
+		}
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range ch {
+				// drain channel
+			}
+		}()
+		client.loop(context.Background(), ch)
+		if client.err == nil {
+			t.Fatal("Expected an error here")
+		}
+		wg.Wait() // make sure we really terminate
+	})
 }
 
-func TestCollectInvalidJSONError(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.NumIterations = 1
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		goodNegotiationResponse(),
-		goodResponse(expectedFirstDownloadURL, "VERYSHORTBODY"),
-		responseWithInvalidJSON(expectedCollectURL),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	for range ch {
-		count++
-	}
-	if count != 1 {
-		t.Fatal("Expected to see a single measurement")
-	}
-	err = clnt.Error()
-	if err == nil {
-		t.Fatal("Expected an error here")
-	}
-}
+func TestClientStartDownload(t *testing.T) {
+	t.Run("mlabns failure", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.Locate = func(ctx context.Context) (string, error) {
+			return "", errors.New("Mocked error")
+		}
+		ch, err := client.StartDownload(context.Background())
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+		if ch != nil {
+			t.Fatal("Expected nil channel here")
+		}
+	})
 
-func TestAllGood(t *testing.T) {
-	clnt := dash.NewClient(softwareName, softwareVersion)
-	clnt.NumIterations = 1
-	clnt.MLabNSClient.HTTPClient = mocks.NewHTTPClient(
-		mlabnsSuccessfulResponse(),
-	)
-	clnt.HTTPClient = mocks.NewHTTPClient(
-		goodNegotiationResponse(),
-		goodResponse(expectedFirstDownloadURL, "VERYSHORTBODY"),
-		goodCollectResponse(),
-	)
-	ch, err := clnt.StartDownload(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	for range ch {
-		count++
-	}
-	if count != 1 {
-		t.Fatal("Expected to see a single measurement")
-	}
-	err = clnt.Error()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(clnt.ServerResults()) <= 0 {
-		t.Fatal("Missing server results")
-	}
+	t.Run("common case", func(t *testing.T) {
+		client := New(softwareName, softwareVersion)
+		client.deps.Loop = func(ctx context.Context, ch chan<- common.ClientResults) {
+			close(ch)
+		}
+		ch, err := client.StartDownload(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range ch {
+			// drain channel
+		}
+	})
 }

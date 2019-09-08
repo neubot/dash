@@ -1,426 +1,459 @@
-package server_test
+package server
 
 import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/apex/log"
 	"github.com/google/uuid"
 	"github.com/neubot/dash/common"
-	"github.com/neubot/dash/internal/mocks"
-	dash "github.com/neubot/dash/server"
 )
 
-func prepare() (mux *http.ServeMux, handler *dash.Handler) {
-	mux = http.NewServeMux()
-	handler = dash.NewHandler("..") // run in toplevel dir
-	handler.RegisterHandlers(mux)
-	return
-}
-
-func TestNegotiateNewRandomUUIDError(t *testing.T) {
-	mux, handler := prepare()
-	req := httptest.NewRequest("POST", "/negotiate/dash", nil)
-	writer := httptest.NewRecorder()
-	handler.Dependencies.UUIDNewRandom = func() (uuid.UUID, error) {
-		return uuid.UUID{}, mocks.ErrMocked
-	}
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 500 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func TestNegotiateMarshalJSONError(t *testing.T) {
-	mux, handler := prepare()
-	req := httptest.NewRequest("POST", "/negotiate/dash", nil)
-	writer := httptest.NewRecorder()
-	handler.Dependencies.JSONMarshal = func(v interface{}) ([]byte, error) {
-		return nil, mocks.ErrMocked
-	}
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 500 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func TestNegotiateNoRemoteAddr(t *testing.T) {
-	mux, _ := prepare()
-	req := httptest.NewRequest("POST", "/negotiate/dash", nil)
-	req.RemoteAddr = ""
-	writer := httptest.NewRecorder()
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 500 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func doNegotiate(mux *http.ServeMux) (common.NegotiateResponse, error) {
-	var negotiateResponse common.NegotiateResponse
-	req := httptest.NewRequest("POST", "/negotiate/dash", nil)
-	writer := httptest.NewRecorder()
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 200 {
-		return negotiateResponse, errors.New("Invalid status code")
-	}
-	data, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return negotiateResponse, err
-	}
-	err = json.Unmarshal(data, &negotiateResponse)
-	if err != nil {
-		return negotiateResponse, err
-	}
-	return negotiateResponse, nil
-}
-
-func TestNegotiateNormal(t *testing.T) {
-	mux, _ := prepare()
-	negotiateResponse, err := doNegotiate(mux)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(negotiateResponse.Authorization) <= 0 {
-		t.Fatal("Authorization is empty")
-	}
-	if negotiateResponse.QueuePos != 0 {
-		t.Fatal("Unexpected queue position")
-	}
-	if net.ParseIP(negotiateResponse.RealAddress) == nil {
-		t.Fatal("Cannot parse RealAddress")
-	}
-	if negotiateResponse.Unchoked != 1 {
-		t.Fatal("Unexpected unchoked value")
-	}
-}
-
-func TestDownloadNoAuth(t *testing.T) {
-	mux, _ := prepare()
-	req := httptest.NewRequest("GET", "/dash/download", nil)
-	req.RemoteAddr = ""
-	writer := httptest.NewRecorder()
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 400 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func TestDownloadInvalidSize(t *testing.T) {
-	mux, _ := prepare()
-	negotiateResponse, err := doNegotiate(mux)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest("GET", "/dash/download/xyz", nil)
-	req.Header.Set("Authorization", negotiateResponse.Authorization)
-	writer := httptest.NewRecorder()
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 400 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func doDownloadWithAuth(mux *http.ServeMux, urlpath, auth string) *http.Response {
-	req := httptest.NewRequest("GET", urlpath, nil)
-	req.Header.Set("Authorization", auth)
-	writer := httptest.NewRecorder()
-	mux.ServeHTTP(writer, req)
-	return writer.Result()
-}
-
-func TestDownloadRandReadError(t *testing.T) {
-	mux, handler := prepare()
-	negotiateResponse, err := doNegotiate(mux)
-	if err != nil {
-		t.Fatal(err)
-	}
-	handler.Dependencies.RandRead = func(p []byte) (n int, err error) {
-		return 0, mocks.ErrMocked
-	}
-	resp := doDownloadWithAuth(mux, "/dash/download", negotiateResponse.Authorization)
-	if resp.StatusCode != 500 {
-		t.Fatal("Unexpected status code")
-	}
-}
-
-func doDownload(mux *http.ServeMux, urlpath string) (string, int, error) {
-	negotiateResponse, err := doNegotiate(mux)
-	if err != nil {
-		return "", 0, err
-	}
-	resp := doDownloadWithAuth(mux, urlpath, negotiateResponse.Authorization)
-	if resp.StatusCode != 200 {
-		return "", 0, errors.New("Expected different status code")
-	}
-	if resp.Header.Get("Content-Type") != "video/mp4" {
-		return "", 0, errors.New("Unexpected Content-Type value")
-	}
-	data, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", 0, err
-	}
-	return negotiateResponse.Authorization, len(data), nil
-}
-
-func TestDownloadNoSize(t *testing.T) {
-	mux, _ := prepare()
-	_, size, err := doDownload(mux, "/dash/download")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if size != dash.MinSize {
-		t.Fatal("Unexpected segment length")
-	}
-}
-
-func TestDownloadNegativeSize(t *testing.T) {
-	mux, _ := prepare()
-	_, size, err := doDownload(mux, "/dash/download/-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if size != dash.MinSize {
-		t.Fatal("Unexpected segment length")
-	}
-}
-
-func TestDownloadHugeSize(t *testing.T) {
-	mux, _ := prepare()
-	_, size, err := doDownload(mux, "/dash/download/1125899906842624")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if size != dash.MaxSize {
-		t.Fatal("Unexpected segment length")
-	}
-}
-
-func TestDownloadTooManyRequests(t *testing.T) {
-	mux, handler := prepare()
-	handler.MaxIterations = 1
-	auth, _, err := doDownload(mux, "/dash/download")
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp := doDownloadWithAuth(mux, "/dash/download", auth)
-	if resp.StatusCode != 429 {
-		t.Fatal("Unexpected status code")
-	}
-}
-
-func TestCollectNoAuth(t *testing.T) {
-	mux, _ := prepare()
-	req := httptest.NewRequest("POST", "/collect/dash", nil)
-	writer := httptest.NewRecorder()
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 400 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func TestCollectReadBodyError(t *testing.T) {
-	mux, _ := prepare()
-	negotiateResponse, err := doNegotiate(mux)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest("POST", "/collect/dash", nil)
-	req.Header.Set("Authorization", negotiateResponse.Authorization)
-	req.Body = ioutil.NopCloser(mocks.ProgrammableReader{
-		Err: mocks.ErrMocked,
-	})
-	writer := httptest.NewRecorder()
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 400 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func TestCollectNoBody(t *testing.T) {
-	mux, _ := prepare()
-	negotiateResponse, err := doNegotiate(mux)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest("POST", "/collect/dash", nil)
-	req.Header.Set("Authorization", negotiateResponse.Authorization)
-	writer := httptest.NewRecorder()
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 400 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func TestCollectMarshalJSONError(t *testing.T) {
-	mux, handler := prepare()
-	negotiateResponse, err := doNegotiate(mux)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest("POST", "/collect/dash", nil)
-	req.Header.Set("Authorization", negotiateResponse.Authorization)
-	req.Body = ioutil.NopCloser(mocks.ProgrammableReader{
-		Reader: strings.NewReader("[]"),
-	})
-	writer := httptest.NewRecorder()
-	handler.Dependencies.JSONMarshal = func(v interface{}) ([]byte, error) {
-		return nil, mocks.ErrMocked
-	}
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 500 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func TestCollectOSMkdirAllError(t *testing.T) {
-	mux, handler := prepare()
-	negotiateResponse, err := doNegotiate(mux)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest("POST", "/collect/dash", nil)
-	req.Header.Set("Authorization", negotiateResponse.Authorization)
-	req.Body = ioutil.NopCloser(mocks.ProgrammableReader{
-		Reader: strings.NewReader("[]"),
-	})
-	writer := httptest.NewRecorder()
-	handler.Dependencies.OSMkdirAll = func(path string, perm os.FileMode) error {
-		return mocks.ErrMocked
-	}
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 500 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func TestCollectOSOpenFileError(t *testing.T) {
-	mux, handler := prepare()
-	negotiateResponse, err := doNegotiate(mux)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest("POST", "/collect/dash", nil)
-	req.Header.Set("Authorization", negotiateResponse.Authorization)
-	req.Body = ioutil.NopCloser(mocks.ProgrammableReader{
-		Reader: strings.NewReader("[]"),
-	})
-	writer := httptest.NewRecorder()
-	handler.Dependencies.OSOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
-		return nil, mocks.ErrMocked
-	}
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 500 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func TestCollectGzipNewWriterLevelError(t *testing.T) {
-	mux, handler := prepare()
-	negotiateResponse, err := doNegotiate(mux)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest("POST", "/collect/dash", nil)
-	req.Header.Set("Authorization", negotiateResponse.Authorization)
-	req.Body = ioutil.NopCloser(mocks.ProgrammableReader{
-		Reader: strings.NewReader("[]"),
-	})
-	writer := httptest.NewRecorder()
-	handler.Dependencies.GzipNewWriterLevel = func(w io.Writer, level int) (*gzip.Writer, error) {
-		return nil, mocks.ErrMocked
-	}
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 500 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func TestCollectSecondJSONMarshalError(t *testing.T) {
-	mux, handler := prepare()
-	negotiateResponse, err := doNegotiate(mux)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest("POST", "/collect/dash", nil)
-	req.Header.Set("Authorization", negotiateResponse.Authorization)
-	req.Body = ioutil.NopCloser(mocks.ProgrammableReader{
-		Reader: strings.NewReader("[]"),
-	})
-	writer := httptest.NewRecorder()
-	var count int
-	handler.Dependencies.JSONMarshal = func(v interface{}) ([]byte, error) {
-		if count <= 0 {
-			count++
-			return json.Marshal(v)
+func TestServerNegotiate(t *testing.T) {
+	t.Run("net.SplitHostPort failure", func(t *testing.T) {
+		handler := NewHandler("")
+		req := new(http.Request)
+		w := httptest.NewRecorder()
+		handler.negotiate(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 500 {
+			t.Fatal("Expected different status code")
 		}
-		return nil, mocks.ErrMocked
-	}
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 500 {
-		t.Fatal("Expected different status code")
-	}
-}
-
-func TestCollectGood(t *testing.T) {
-	mux, _ := prepare()
-	negotiateResponse, err := doNegotiate(mux)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest("POST", "/collect/dash", nil)
-	req.Header.Set("Authorization", negotiateResponse.Authorization)
-	req.Body = ioutil.NopCloser(mocks.ProgrammableReader{
-		Reader: strings.NewReader("[]"),
 	})
-	writer := httptest.NewRecorder()
-	mux.ServeHTTP(writer, req)
-	resp := writer.Result()
-	if resp.StatusCode != 200 {
-		t.Fatal("Expected different status code")
+
+	t.Run("uuid.NewRandom failure", func(t *testing.T) {
+		handler := NewHandler("")
+		handler.deps.UUIDNewRandom = func() (uuid.UUID, error) {
+			return uuid.UUID{}, errors.New("Mocked error")
+		}
+		req := new(http.Request)
+		req.RemoteAddr = "127.0.0.1:8080"
+		w := httptest.NewRecorder()
+		handler.negotiate(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 500 {
+			t.Fatal("Expected different status code")
+		}
+	})
+
+	t.Run("json.Marshal failure", func(t *testing.T) {
+		handler := NewHandler("")
+		handler.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
+			return nil, errors.New("Mocked error")
+		}
+		req := new(http.Request)
+		req.RemoteAddr = "127.0.0.1:8080"
+		w := httptest.NewRecorder()
+		handler.negotiate(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 500 {
+			t.Fatal("Expected different status code")
+		}
+	})
+
+	t.Run("common case", func(t *testing.T) {
+		handler := NewHandler("")
+		req := new(http.Request)
+		req.RemoteAddr = "127.0.0.1:8080"
+		w := httptest.NewRecorder()
+		handler.negotiate(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 200 {
+			t.Fatal("Expected different status code")
+		}
+		data, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var msg common.NegotiateResponse
+		err = json.Unmarshal(data, &msg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msg.Authorization) <= 0 {
+			t.Fatal("Authorization is empty")
+		}
+		if msg.QueuePos != 0 {
+			t.Fatal("QueuePos is nonzero")
+		}
+		if msg.RealAddress != "127.0.0.1" {
+			t.Fatal("RealAddress is wrong")
+		}
+		if msg.Unchoked != 1 {
+			t.Fatal("Unchoked is different from one")
+		}
+		if handler.getSessionState(msg.Authorization) != sessionActive {
+			t.Fatal("Unexpected session state")
+		}
+	})
+}
+
+func BenchmarkServerGenbody(b *testing.B) {
+	handler := NewHandler("")
+	for i := 0; i < b.N; i++ {
+		count := maxSize
+		handler.genbody(&count)
 	}
 }
 
-func TestReaper(t *testing.T) {
+func TestServerGenbody(t *testing.T) {
+	t.Run("If size is too small", func(t *testing.T) {
+		handler := NewHandler("")
+		count := minSize - 100
+		data, err := handler.genbody(&count)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data) != minSize {
+			t.Fatal("Expected different size")
+		}
+	})
+
+	t.Run("If size is too large", func(t *testing.T) {
+		handler := NewHandler("")
+		count := maxSize + 100
+		data, err := handler.genbody(&count)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data) != maxSize {
+			t.Fatal("Expected different size")
+		}
+	})
+}
+
+func TestServerDownload(t *testing.T) {
+	t.Run("session missing", func(t *testing.T) {
+		handler := NewHandler("")
+		req := new(http.Request)
+		w := httptest.NewRecorder()
+		handler.download(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 400 {
+			t.Fatal("Expected different status code")
+		}
+	})
+
+	t.Run("session expired", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		handler.maxIterations = 0
+		req := new(http.Request)
+		req.Header = make(http.Header)
+		req.Header.Add(authorization, session)
+		w := httptest.NewRecorder()
+		handler.download(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 429 {
+			t.Fatal("Expected different status code")
+		}
+	})
+
+	t.Run("strcov.Atoi failure", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		req := new(http.Request)
+		req.URL = new(url.URL)
+		req.URL.Path = "/dash/download/foobar"
+		req.Header = make(http.Header)
+		req.Header.Add(authorization, session)
+		w := httptest.NewRecorder()
+		handler.download(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 400 {
+			t.Fatal("Expected different status code")
+		}
+	})
+
+	t.Run("rand.Read failure", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		handler.deps.RandRead = func(p []byte) (n int, err error) {
+			return 0, errors.New("Mocked error")
+		}
+		req := new(http.Request)
+		req.URL = new(url.URL)
+		req.URL.Path = "/dash/download"
+		req.Header = make(http.Header)
+		req.Header.Add(authorization, session)
+		w := httptest.NewRecorder()
+		handler.download(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 500 {
+			t.Fatal("Expected different status code")
+		}
+	})
+
+	t.Run("common case", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		req := new(http.Request)
+		req.URL = new(url.URL)
+		req.URL.Path = "/dash/download/3500000"
+		req.Header = make(http.Header)
+		req.Header.Add(authorization, session)
+		w := httptest.NewRecorder()
+		handler.download(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 200 {
+			t.Fatal("Expected different status code")
+		}
+		data, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data) != 3500000 {
+			t.Fatal("Expected different data length")
+		}
+	})
+}
+
+func TestServerSaveData(t *testing.T) {
+	t.Run("os.MkdirAll failure", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		sessionInfo := handler.popSession(session)
+		handler.deps.OSMkdirAll = func(path string, perm os.FileMode) error {
+			return errors.New("Mocked error")
+		}
+		err := handler.savedata(sessionInfo)
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("os.OpenFile failure", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		sessionInfo := handler.popSession(session)
+		handler.deps.OSMkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		handler.deps.OSOpenFile = func(
+			name string, flag int, perm os.FileMode,
+		) (*os.File, error) {
+			return nil, errors.New("Mocked error")
+		}
+		err := handler.savedata(sessionInfo)
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("gzip.NewWriterLevel failure", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		sessionInfo := handler.popSession(session)
+		handler.deps.OSMkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		handler.deps.OSOpenFile = func(
+			name string, flag int, perm os.FileMode,
+		) (*os.File, error) {
+			return ioutil.TempFile("", "neubot-dash-tests")
+		}
+		handler.deps.GzipNewWriterLevel = func(
+			w io.Writer, level int,
+		) (*gzip.Writer, error) {
+			return nil, errors.New("Mocked error")
+		}
+		err := handler.savedata(sessionInfo)
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("json.Marshal failure", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		sessionInfo := handler.popSession(session)
+		handler.deps.OSMkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		handler.deps.OSOpenFile = func(
+			name string, flag int, perm os.FileMode,
+		) (*os.File, error) {
+			return ioutil.TempFile("", "neubot-dash-tests")
+		}
+		handler.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
+			return nil, errors.New("Mocked error")
+		}
+		err := handler.savedata(sessionInfo)
+		if err == nil {
+			t.Fatal("Expected an error here")
+		}
+	})
+
+	t.Run("common case", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		sessionInfo := handler.popSession(session)
+		handler.deps.OSMkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		handler.deps.OSOpenFile = func(
+			name string, flag int, perm os.FileMode,
+		) (*os.File, error) {
+			return ioutil.TempFile("", "neubot-dash-tests")
+		}
+		err := handler.savedata(sessionInfo)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestServerCollect(t *testing.T) {
+	t.Run("session missing", func(t *testing.T) {
+		handler := NewHandler("")
+		req := new(http.Request)
+		w := httptest.NewRecorder()
+		handler.collect(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 400 {
+			t.Fatal("Expected different status code")
+		}
+	})
+
+	t.Run("ioutil.ReadAll failure", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		req := new(http.Request)
+		req.Header = make(http.Header)
+		req.Header.Add(authorization, session)
+		handler.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+			return nil, errors.New("Mocked error")
+		}
+		w := httptest.NewRecorder()
+		handler.collect(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 400 {
+			t.Fatal("Expected different status code")
+		}
+	})
+
+	t.Run("json.Unmarshal failure", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		req := new(http.Request)
+		req.Header = make(http.Header)
+		req.Header.Add(authorization, session)
+		handler.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+			return []byte("{"), nil
+		}
+		w := httptest.NewRecorder()
+		handler.collect(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 400 {
+			t.Fatal("Expected different status code")
+		}
+	})
+
+	t.Run("json.Marshal failure", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		req := new(http.Request)
+		req.Header = make(http.Header)
+		req.Header.Add(authorization, session)
+		handler.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+			return []byte("[]"), nil
+		}
+		handler.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
+			return nil, errors.New("Mocked error")
+		}
+		w := httptest.NewRecorder()
+		handler.collect(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 500 {
+			t.Fatal("Expected different status code")
+		}
+	})
+
+	t.Run("savedata failure", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		req := new(http.Request)
+		req.Header = make(http.Header)
+		req.Header.Add(authorization, session)
+		handler.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+			return []byte("[]"), nil
+		}
+		handler.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
+			return []byte("[]"), nil
+		}
+		handler.deps.Savedata = func(session *sessionInfo) error {
+			return errors.New("Mocked error")
+		}
+		w := httptest.NewRecorder()
+		handler.collect(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 500 {
+			t.Fatal("Expected different status code")
+		}
+	})
+
+	t.Run("common case", func(t *testing.T) {
+		const session = "deadbeef"
+		handler := NewHandler("")
+		handler.createSession(session)
+		req := new(http.Request)
+		req.Header = make(http.Header)
+		req.Header.Add(authorization, session)
+		handler.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+			return []byte("[]"), nil
+		}
+		handler.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
+			return []byte("[]"), nil
+		}
+		handler.deps.Savedata = func(session *sessionInfo) error {
+			return nil
+		}
+		w := httptest.NewRecorder()
+		handler.collect(w, req)
+		resp := w.Result()
+		if resp.StatusCode != 200 {
+			t.Fatal("Expected different status code")
+		}
+	})
+}
+
+func TestServerReaper(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping this test in short mode")
 	}
 	log.SetLevel(log.DebugLevel)
-	mux, handler := prepare()
+	handler := NewHandler("")
 	handler.Logger = log.Log
 	ctx, cancel := context.WithCancel(context.Background())
 	handler.StartReaper(ctx)
 	for i := 0; i < 17; i++ {
-		_, err := doNegotiate(mux)
-		if err != nil {
-			t.Fatal(err)
-		}
+		handler.createSession(fmt.Sprintf("%d", i))
 	}
-	for handler.CountSessions() > 0 {
+	for handler.countSessions() > 0 {
 		time.Sleep(1 * time.Second)
 	}
 	cancel()

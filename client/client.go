@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -16,7 +17,6 @@ import (
 	"github.com/m-lab/ndt7-client-go/mlabns"
 	"github.com/neubot/dash/common"
 	"github.com/neubot/dash/internal"
-	"github.com/neubot/dash/mockable"
 )
 
 const (
@@ -33,12 +33,26 @@ const (
 )
 
 var (
-	// ErrTryAgain is returned when the Neubot server is busy.
-	ErrTryAgain = errors.New("Server busy; try again later")
+	// ErrServerBusy is returned when the Neubot server is busy.
+	ErrServerBusy = errors.New("Server busy; try again later")
 
 	// errHTTPRequestFailed is returned when an HTTP request fails.
 	errHTTPRequestFailed = errors.New("HTTP request failed")
 )
+
+type dependencies struct {
+	Collect  func(ctx context.Context, authorization string) error
+	Download func(
+		ctx context.Context, authorization string,
+		current *common.ClientResults) error
+	HTTPClientDo   func(req *http.Request) (*http.Response, error)
+	HTTPNewRequest func(method, url string, body io.Reader) (*http.Request, error)
+	IOUtilReadAll  func(r io.Reader) ([]byte, error)
+	JSONMarshal    func(v interface{}) ([]byte, error)
+	Locate         func(ctx context.Context) (string, error)
+	Loop           func(ctx context.Context, ch chan<- common.ClientResults)
+	Negotiate      func(ctx context.Context) (common.NegotiateResponse, error)
+}
 
 // Client is a DASH client
 type Client struct {
@@ -49,10 +63,6 @@ type Client struct {
 	// ClientVersion is the version of the client application. This field is
 	// initialized by the NewClient constructor.
 	ClientVersion string
-
-	// Dependencies contains mockable dependencies. Usually you don't
-	// want to touch them unless you're into unit testing.
-	Dependencies mockable.Dependencies
 
 	// FQDN is the server of the server to use. If the FQDN is not
 	// specified, we'll use mlab-ns to discover a server.
@@ -66,16 +76,15 @@ type Client struct {
 	// NewClient constructor to a do-nothing logger.
 	Logger common.Logger
 
-	// NumIterations is the num of iterations you want to perform.
-	NumIterations int64
-
 	// MLabNSClient is the mlabns client. We'll configure it with
 	// defaults in NewClient and you may override it.
 	MLabNSClient *mlabns.Client
 
 	begin         time.Time
 	clientResults []common.ClientResults
+	deps          dependencies
 	err           error
+	numIterations int64
 	scheme        string
 	serverResults []common.ServerResults
 	userAgent     string
@@ -85,22 +94,41 @@ func makeUserAgent(clientName, clientVersion string) string {
 	return clientName + "/" + clientVersion + " " + libraryName + "/" + libraryVersion
 }
 
-// NewClient creates a new client instance using the specified
+func (c *Client) httpClientDo(req *http.Request) (*http.Response, error) {
+	return c.HTTPClient.Do(req)
+}
+
+func (c *Client) locate(ctx context.Context) (string, error) {
+	return c.MLabNSClient.Query(ctx)
+}
+
+// New creates a new Client instance using the specified
 // client application name and version.
-func NewClient(clientName, clientVersion string) *Client {
+func New(clientName, clientVersion string) (client *Client) {
 	ua := makeUserAgent(clientName, clientVersion)
-	return &Client{
+	client = &Client{
 		ClientName:    clientName,
 		ClientVersion: clientVersion,
-		Dependencies:  mockable.NewDependencies(),
 		HTTPClient:    http.DefaultClient,
 		Logger:        internal.NoLogger{},
 		MLabNSClient:  mlabns.NewClient("neubot", ua),
-		NumIterations: 15,
 		begin:         time.Now(),
+		numIterations: 15,
 		scheme:        "http",
 		userAgent:     ua,
 	}
+	client.deps = dependencies{
+		Collect:        client.collect,
+		Download:       client.download,
+		HTTPClientDo:   client.httpClientDo,
+		HTTPNewRequest: http.NewRequest,
+		IOUtilReadAll:  ioutil.ReadAll,
+		JSONMarshal:    json.Marshal,
+		Locate:         client.locate,
+		Loop:           client.loop,
+		Negotiate:      client.negotiate,
+	}
+	return
 }
 
 // negotiate is the preliminary phase of Neubot experiment where we connect
@@ -108,7 +136,7 @@ func NewClient(clientName, clientVersion string) *Client {
 // token that will be used by us and by the server to identify this experiment.
 func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error) {
 	var negotiateResponse common.NegotiateResponse
-	data, err := c.Dependencies.JSONMarshal(common.NegotiateRequest{
+	data, err := c.deps.JSONMarshal(common.NegotiateRequest{
 		DASHRates: common.DefaultRates,
 	})
 	if err != nil {
@@ -119,7 +147,7 @@ func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error
 	URL.Scheme = c.scheme
 	URL.Host = c.FQDN
 	URL.Path = common.NegotiatePath
-	req, err := c.Dependencies.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
+	req, err := c.deps.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
 	if err != nil {
 		return negotiateResponse, err
 	}
@@ -128,7 +156,7 @@ func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "")
 	req = req.WithContext(ctx)
-	resp, err := c.HTTPClient.Do(req)
+	resp, err := c.deps.HTTPClientDo(req)
 	if err != nil {
 		return negotiateResponse, err
 	}
@@ -137,7 +165,7 @@ func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error
 		return negotiateResponse, errHTTPRequestFailed
 	}
 	defer resp.Body.Close()
-	data, err = ioutil.ReadAll(resp.Body)
+	data, err = c.deps.IOUtilReadAll(resp.Body)
 	if err != nil {
 		return negotiateResponse, err
 	}
@@ -151,7 +179,7 @@ func (c *Client) negotiate(ctx context.Context) (common.NegotiateResponse, error
 	// I choose an integer over a boolean, given that Python does have
 	// support for booleans. I don't remember 🤷.
 	if negotiateResponse.Authorization == "" || negotiateResponse.Unchoked == 0 {
-		return negotiateResponse, ErrTryAgain
+		return negotiateResponse, ErrServerBusy
 	}
 	c.Logger.Debugf("dash: authorization: %s", negotiateResponse.Authorization)
 	return negotiateResponse, nil
@@ -169,7 +197,7 @@ func (c *Client) download(
 	URL.Scheme = c.scheme
 	URL.Host = c.FQDN
 	URL.Path = fmt.Sprintf("%s%d", common.DownloadPath, nbytes)
-	req, err := c.Dependencies.HTTPNewRequest("GET", URL.String(), nil)
+	req, err := c.deps.HTTPNewRequest("GET", URL.String(), nil)
 	if err != nil {
 		return err
 	}
@@ -178,7 +206,7 @@ func (c *Client) download(
 	req.Header.Set("Authorization", authorization)
 	req = req.WithContext(ctx)
 	savedTicks := time.Now()
-	resp, err := c.HTTPClient.Do(req)
+	resp, err := c.deps.HTTPClientDo(req)
 	if err != nil {
 		return err
 	}
@@ -187,7 +215,7 @@ func (c *Client) download(
 		return errHTTPRequestFailed
 	}
 	defer resp.Body.Close()
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := c.deps.IOUtilReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
@@ -207,7 +235,7 @@ func (c *Client) download(
 // collect is the final phase of the test. We send to the server what we
 // measured and we receive back what it has measured.
 func (c *Client) collect(ctx context.Context, authorization string) error {
-	data, err := c.Dependencies.JSONMarshal(c.clientResults)
+	data, err := c.deps.JSONMarshal(c.clientResults)
 	if err != nil {
 		return err
 	}
@@ -216,7 +244,7 @@ func (c *Client) collect(ctx context.Context, authorization string) error {
 	URL.Scheme = c.scheme
 	URL.Host = c.FQDN
 	URL.Path = common.CollectPath
-	req, err := c.Dependencies.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
+	req, err := c.deps.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -225,7 +253,7 @@ func (c *Client) collect(ctx context.Context, authorization string) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", authorization)
 	req = req.WithContext(ctx)
-	resp, err := c.HTTPClient.Do(req)
+	resp, err := c.deps.HTTPClientDo(req)
 	if err != nil {
 		return err
 	}
@@ -234,7 +262,7 @@ func (c *Client) collect(ctx context.Context, authorization string) error {
 		return errHTTPRequestFailed
 	}
 	defer resp.Body.Close()
-	data, err = ioutil.ReadAll(resp.Body)
+	data, err = c.deps.IOUtilReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
@@ -255,7 +283,7 @@ func (c *Client) loop(ctx context.Context, ch chan<- common.ClientResults) {
 	// increasingly less important to loop waiting for the ready signal. Hence
 	// if the server is busy, we just return a well known error.
 	var negotiateResponse common.NegotiateResponse
-	negotiateResponse, c.err = c.negotiate(ctx)
+	negotiateResponse, c.err = c.deps.Negotiate(ctx)
 	if c.err != nil {
 		return
 	}
@@ -272,8 +300,8 @@ func (c *Client) loop(ctx context.Context, ch chan<- common.ClientResults) {
 		ServerURL:     "http://" + c.FQDN + "/",
 		Version:       magicVersion,
 	}
-	for current.Iteration < c.NumIterations {
-		c.err = c.download(ctx, negotiateResponse.Authorization, &current)
+	for current.Iteration < c.numIterations {
+		c.err = c.deps.Download(ctx, negotiateResponse.Authorization, &current)
 		if c.err != nil {
 			return
 		}
@@ -285,19 +313,19 @@ func (c *Client) loop(ctx context.Context, ch chan<- common.ClientResults) {
 		speed /= 1000.0 // to kbit/s
 		current.Rate = int64(speed)
 	}
-	c.err = c.collect(ctx, negotiateResponse.Authorization)
+	c.err = c.deps.Collect(ctx, negotiateResponse.Authorization)
 }
 
 // StartDownload starts the DASH download. It returns a channel where
-// interim measurements are posted, or an error. This function will only
-// technically fail if we cannot even initiate the experiment. If you
-// se some results on the returned channel, then maybe it means the
-// experiment has somehow worked. You can see if there has been some
-// error during the experiment by using Error().
+// client measurements are posted, or an error. This function will only
+// fail if we cannot even initiate the experiment. If you see some
+// results on the returned channel, then maybe it means the experiment
+// has somehow worked. You can see if there has been any error during
+// the experiment by using the Error function.
 func (c *Client) StartDownload(ctx context.Context) (<-chan common.ClientResults, error) {
 	if c.FQDN == "" {
 		c.Logger.Debug("dash: discovering server with mlabns")
-		fqdn, err := c.MLabNSClient.Query(ctx)
+		fqdn, err := c.deps.Locate(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -305,7 +333,7 @@ func (c *Client) StartDownload(ctx context.Context) (<-chan common.ClientResults
 	}
 	c.Logger.Debugf("dash: using server: %s", c.FQDN)
 	ch := make(chan common.ClientResults)
-	go c.loop(ctx, ch)
+	go c.deps.Loop(ctx, ch)
 	return ch, nil
 }
 

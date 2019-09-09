@@ -22,14 +22,14 @@ package main
 import (
 	"context"
 	"flag"
-	"os"
 	"net/http"
+	"os"
 
 	"github.com/apex/log"
-	"github.com/gorilla/handlers"
 	"github.com/apex/log/handlers/json"
-	"github.com/m-lab/go/rtx"
+	"github.com/gorilla/handlers"
 	"github.com/m-lab/go/prometheusx"
+	"github.com/m-lab/go/rtx"
 	"github.com/neubot/dash/server"
 )
 
@@ -41,7 +41,7 @@ var (
 func main() {
 	log.Log = &log.Logger{
 		Handler: json.New(os.Stderr),
-		Level: log.DebugLevel,
+		Level:   log.DebugLevel,
 	}
 	flag.Parse()
 	promServer := prometheusx.MustServeMetrics()
@@ -52,7 +52,7 @@ func main() {
 	handler.RegisterHandlers(mux)
 	handler.Logger = log.Log
 	server := &http.Server{
-		Addr: *flagEndpoint,
+		Addr:    *flagEndpoint,
 		Handler: handlers.LoggingHandler(os.Stdout, mux),
 	}
 	rtx.Must(server.ListenAndServe(), "ListenAndServe failed")

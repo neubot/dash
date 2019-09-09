@@ -84,7 +84,7 @@ type Client struct {
 	// Scheme is the Scheme to use. By default we configure
 	// it to "http". Future versions of the server will also
 	// have support for "https" testing.
-	Scheme        string
+	Scheme string
 
 	begin         time.Time
 	clientResults []model.ClientResults

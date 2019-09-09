@@ -66,7 +66,7 @@ func internalmain() error {
 		fmt.Printf("%s\n", string(data))
 	}
 	if client.Error() != nil {
-		return err
+		return client.Error()
 	}
 	data, err := json.Marshal(client.ServerResults())
 	if err != nil {

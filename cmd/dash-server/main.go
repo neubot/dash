@@ -2,7 +2,7 @@
 //
 // Usage:
 //
-//    dash-server [-datadir <datadir>] [-endpoint <endpoint>]
+//    dash-server [-datadir <datadir>]
 //
 // The server will listen for incoming DASH experiment requests and
 // will keep serving them until it is interrupted.
@@ -10,9 +10,7 @@
 // The `-datadir <datadir>` flag specifies the directory where to write
 // measurement results. By default is the current working directory.
 //
-// The `-endpoint <endpoint>` flag specifies the endpoint to listen
-// to for unencrypted DASH experiment requests. By default we will
-// listen on `:80`, i.e., on port `80` on all interfaces.
+// The server will listen on `:80`.
 //
 // The server will emit access logs on the standard output using the
 // usual format. The server will emit error logging on the standard
@@ -35,7 +33,6 @@ import (
 
 var (
 	flagDatadir  = flag.String("datadir", ".", "directory where to save results")
-	flagEndpoint = flag.String("endpoint", ":80", "endpoint where to listen")
 )
 
 func main() {
@@ -53,7 +50,7 @@ func main() {
 	handler.Logger = log.Log
 	loggingHandler := handlers.LoggingHandler(os.Stdout, mux)
 	rtx.Must(
-		http.ListenAndServe(*flagEndpoint, loggingHandler),
+		http.ListenAndServe(":80", loggingHandler),
 		"ListenAndServe failed",
 	)
 }

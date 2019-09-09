@@ -21,12 +21,13 @@ docker tag neubot/dash neubot/dash:`date -u +%Y%m%d%H%M%S`-`git log -1 --format=
 ### Test locally
 
 ```bash
-docker run --network=host                  \
-           --volume `pwd`/datadir:/datadir \
-           --read-only                     \
-           --cap-drop=all                  \
-           --cap-add=net_bind_service      \
-           neubot/dash                     \
+docker run --network=host                    \
+           --volume `pwd`/datadir:/datadir   \
+           --volume `pwd`/cache:/root/.cache \
+           --read-only                       \
+           --cap-drop=all                    \
+           --cap-add=net_bind_service        \
+           neubot/dash                       \
            -datadir /datadir
 ```
 

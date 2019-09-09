@@ -81,12 +81,16 @@ type Client struct {
 	// defaults in NewClient and you may override it.
 	MLabNSClient *mlabns.Client
 
+	// Scheme is the Scheme to use. By default we configure
+	// it to "http". Future versions of the server will also
+	// have support for "https" testing.
+	Scheme        string
+
 	begin         time.Time
 	clientResults []model.ClientResults
 	deps          dependencies
 	err           error
 	numIterations int64
-	scheme        string
 	serverResults []model.ServerResults
 	userAgent     string
 }
@@ -115,7 +119,7 @@ func New(clientName, clientVersion string) (client *Client) {
 		MLabNSClient:  mlabns.NewClient("neubot", ua),
 		begin:         time.Now(),
 		numIterations: 15,
-		scheme:        "http",
+		Scheme:        "http",
 		userAgent:     ua,
 	}
 	client.deps = dependencies{
@@ -145,7 +149,7 @@ func (c *Client) negotiate(ctx context.Context) (model.NegotiateResponse, error)
 	}
 	c.Logger.Debugf("dash: body: %s", string(data))
 	var URL url.URL
-	URL.Scheme = c.scheme
+	URL.Scheme = c.Scheme
 	URL.Host = c.FQDN
 	URL.Path = spec.NegotiatePath
 	req, err := c.deps.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
@@ -195,7 +199,7 @@ func (c *Client) download(
 ) error {
 	nbytes := (current.Rate * 1000 * current.ElapsedTarget) >> 3
 	var URL url.URL
-	URL.Scheme = c.scheme
+	URL.Scheme = c.Scheme
 	URL.Host = c.FQDN
 	URL.Path = fmt.Sprintf("%s%d", spec.DownloadPath, nbytes)
 	req, err := c.deps.HTTPNewRequest("GET", URL.String(), nil)
@@ -242,7 +246,7 @@ func (c *Client) collect(ctx context.Context, authorization string) error {
 	}
 	c.Logger.Debugf("dash: body: %s", string(data))
 	var URL url.URL
-	URL.Scheme = c.scheme
+	URL.Scheme = c.Scheme
 	URL.Host = c.FQDN
 	URL.Path = spec.CollectPath
 	req, err := c.deps.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))

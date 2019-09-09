@@ -2,7 +2,7 @@
 //
 // Usage:
 //
-//    dash-client [-hostname <name>] [-timeout <string>]
+//    dash-client [-hostname <name>] [-timeout <string>] [-scheme <scheme>]
 //
 // The `-hostname <name>` flag specifies to use the `name` hostname for
 // performing the dash test. The default is to autodiscover a suitable
@@ -12,6 +12,10 @@
 // whole test is interrupted. The `<string>` is a string suitable to
 // be passed to time.ParseDuration, e.g., "15s". The default is a large
 // enough value that should be suitable for common conditions.
+//
+// The `-scheme <scheme>` flag allows to override the default scheme
+// used for the test, i.e. "http". All DASH servers support that,
+// future versions of the Go server will support "https".
 //
 // Additionally, passing any unrecognized flag, such as `-help`, will
 // cause dash-client to print a brief help message.
@@ -38,6 +42,7 @@ var (
 	flagHostname = flag.String("hostname", "", "optional ndt7 server hostname")
 	flagTimeout  = flag.Duration(
 		"timeout", defaultTimeout, "time after which the test is aborted")
+	flagScheme = flag.String("scheme", "http", "Scheme to use")
 )
 
 func internalmain() error {
@@ -48,6 +53,7 @@ func internalmain() error {
 	client := client.New(clientName, clientVersion)
 	client.Logger = log.Log
 	client.FQDN = *flagHostname
+	client.Scheme = *flagScheme
 	ch, err := client.StartDownload(ctx)
 	if err != nil {
 		return err

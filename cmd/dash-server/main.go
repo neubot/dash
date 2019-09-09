@@ -51,9 +51,9 @@ func main() {
 	handler.StartReaper(context.Background())
 	handler.RegisterHandlers(mux)
 	handler.Logger = log.Log
-	server := &http.Server{
-		Addr:    *flagEndpoint,
-		Handler: handlers.LoggingHandler(os.Stdout, mux),
-	}
-	rtx.Must(server.ListenAndServe(), "ListenAndServe failed")
+	loggingHandler := handlers.LoggingHandler(os.Stdout, mux)
+	rtx.Must(
+		http.ListenAndServe(*flagEndpoint, loggingHandler),
+		"ListenAndServe failed",
+	)
 }

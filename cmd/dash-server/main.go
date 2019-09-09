@@ -29,6 +29,7 @@ import (
 	"github.com/gorilla/handlers"
 	"github.com/apex/log/handlers/json"
 	"github.com/m-lab/go/rtx"
+	"github.com/m-lab/go/prometheusx"
 	"github.com/neubot/dash/server"
 )
 
@@ -43,6 +44,8 @@ func main() {
 		Level: log.DebugLevel,
 	}
 	flag.Parse()
+	promServer := prometheusx.MustServeMetrics()
+	defer promServer.Close()
 	mux := http.NewServeMux()
 	handler := server.NewHandler(*flagDatadir)
 	handler.StartReaper(context.Background())

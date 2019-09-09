@@ -15,7 +15,7 @@ be available as [neubot/dash](https://hub.docker.com/r/neubot/dash).
 
 ```bash
 docker build -t neubot/dash .
-docker tag neubot/dash neubot/dash:`date -u +%Y%m%d%H%M%S`-`git log -1 --format=%h`
+docker tag neubot/dash neubot/dash:`git describe --tags --dirty`-`date -u +%Y%m%d%H%M%S`
 ```
 
 ### Test locally

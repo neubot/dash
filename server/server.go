@@ -152,7 +152,7 @@ func (h *Handler) CountSessions() (count int) {
 func (h *Handler) reapStaleSessions() {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
-	h.Logger.Debugf("reaper: inspecting %d sessions", len(h.sessions))
+	h.Logger.Debugf("reapStaleSessions: inspecting %d sessions", len(h.sessions))
 	now := time.Now()
 	var stale []string
 	for UUID, session := range h.sessions {
@@ -161,7 +161,7 @@ func (h *Handler) reapStaleSessions() {
 			stale = append(stale, UUID)
 		}
 	}
-	h.Logger.Debugf("reaper: reaping %d stale sessions", len(stale))
+	h.Logger.Debugf("reapStaleSessions: reaping %d stale sessions", len(stale))
 	for _, UUID := range stale {
 		delete(h.sessions, UUID)
 	}
@@ -170,11 +170,13 @@ func (h *Handler) reapStaleSessions() {
 func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 	address, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
+		h.Logger.Warnf("negotiate: net.SplitHostPort: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
 	UUID, err := h.deps.UUIDNewRandom()
 	if err != nil {
+		h.Logger.Warnf("negotiate: uuid.NewRandom: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -194,6 +196,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 		Unchoked:      1,
 	})
 	if err != nil {
+		h.Logger.Warnf("negotiate: json.Marshal: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -246,6 +249,7 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get(authorization)
 	state := h.getSessionState(sessionID)
 	if state == sessionMissing {
+		h.Logger.Warn("download: session missing")
 		w.WriteHeader(400)
 		return
 	}
@@ -254,6 +258,7 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	// the original implementation returning a value that seems to be much
 	// more useful and actionable to the client.
 	if state == sessionExpired {
+		h.Logger.Warn("download: session expired")
 		w.WriteHeader(429)
 		return
 	}
@@ -266,11 +271,13 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	}
 	count, err := strconv.Atoi(siz)
 	if err != nil {
+		h.Logger.Warnf("download: strconv.Atoi: %s", err.Error())
 		w.WriteHeader(400)
 		return
 	}
 	data, err := h.genbody(&count)
 	if err != nil {
+		h.Logger.Warnf("download: genbody: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -289,6 +296,7 @@ func (h *Handler) savedata(session *sessionInfo) error {
 	name := path.Join(h.Datadir, session.stamp.Format("2006/01/02"))
 	err := h.deps.OSMkdirAll(name, 0755)
 	if err != nil {
+		h.Logger.Warnf("savedata: os.MkdirAll: %s", err.Error())
 		return err
 	}
 	name += "/neubot-dash-" + session.stamp.Format("20060102T150405.000000000Z") + ".json.gz"
@@ -296,16 +304,19 @@ func (h *Handler) savedata(session *sessionInfo) error {
 	// unlikely to have conflicts. If I'm wrong, O_EXCL will let us know.
 	filep, err := h.deps.OSOpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
+		h.Logger.Warnf("savedata: os.OpenFile: %s", err.Error())
 		return err
 	}
 	defer filep.Close()
 	zipper, err := h.deps.GzipNewWriterLevel(filep, gzip.BestSpeed)
 	if err != nil {
+		h.Logger.Warnf("savedata: gzip.NewWriterLevel: %s", err.Error())
 		return err
 	}
 	defer zipper.Close()
 	data, err := h.deps.JSONMarshal(session.serverSchema)
 	if err != nil {
+		h.Logger.Warnf("savedata: json.Marshal: %s", err.Error())
 		return err
 	}
 	_, err = zipper.Write(data)
@@ -315,26 +326,31 @@ func (h *Handler) savedata(session *sessionInfo) error {
 func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 	session := h.popSession(r.Header.Get(authorization))
 	if session == nil {
+		h.Logger.Warn("collect: session missing")
 		w.WriteHeader(400)
 		return
 	}
 	data, err := h.deps.IOUtilReadAll(r.Body)
 	if err != nil {
+		h.Logger.Warnf("collect: ioutil.ReadAll: %s", err.Error())
 		w.WriteHeader(400)
 		return
 	}
 	err = json.Unmarshal(data, &session.serverSchema.Client)
 	if err != nil {
+		h.Logger.Warnf("collect: json.Unmarshal: %s", err.Error())
 		w.WriteHeader(400)
 		return
 	}
 	data, err = h.deps.JSONMarshal(session.serverSchema.Server)
 	if err != nil {
+		h.Logger.Warnf("collect: json.Marshal: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
 	err = h.deps.Savedata(session)
 	if err != nil {
+		// Error already printed by h.savedata()
 		w.WriteHeader(500)
 		return
 	}
@@ -362,6 +378,8 @@ func (h *Handler) RegisterHandlers(mux *http.ServeMux) {
 }
 
 func (h *Handler) reaperLoop(ctx context.Context) {
+	h.Logger.Debug("reaperLoop: start")
+	defer h.Logger.Debug("reaperLoop: done")
 	defer close(h.stop)
 	for ctx.Err() == nil {
 		const reapInterval = 14 * time.Second

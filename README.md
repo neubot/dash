@@ -21,15 +21,14 @@ docker tag neubot/dash neubot/dash:`date -u +%Y%m%d%H%M%S`-`git log -1 --format=
 ### Test locally
 
 ```bash
-install -d datadir && docker run --network=bridge                \
-           			 --publish 80:8880               \
-           			 --volume `pwd`/datadir:/datadir \
-           			 --read-only                     \
-           			 --user `id -u`:`id -g`          \
-           			 --cap-drop=all                  \
-           			 neubot/dash                     \
-           			 -datadir /datadir               \
-           			 -endpoint :8880
+docker run --network=host                    \
+           --volume `pwd`/datadir:/datadir   \
+           --volume `pwd`/cache:/root/.cache \
+           --read-only                       \
+           --cap-drop=all                    \
+           --cap-add=net_bind_service        \
+           neubot/dash                       \
+           -datadir /datadir
 ```
 
 ### Release

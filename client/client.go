@@ -207,6 +207,7 @@ func (c *Client) download(
 		return err
 	}
 	c.Logger.Debugf("dash: GET %s", URL.String())
+	current.ServerURL = URL.String()
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Authorization", authorization)
 	req = req.WithContext(ctx)
@@ -302,7 +303,6 @@ func (c *Client) loop(ctx context.Context, ch chan<- model.ClientResults) {
 		Platform:      runtime.GOOS,
 		Rate:          initialBitrate,
 		RealAddress:   negotiateResponse.RealAddress,
-		ServerURL:     "http://" + c.FQDN + "/",
 		Version:       magicVersion,
 	}
 	for current.Iteration < c.numIterations {

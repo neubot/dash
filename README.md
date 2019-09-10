@@ -21,18 +21,30 @@ docker tag neubot/dash neubot/dash:`git describe --tags --dirty`-`date -u +%Y%m%
 ### Test locally
 
 ```bash
-./mkcerts.bash
-docker run --network=host                    \
+rm -f ./certs/*.pem &&                       \
+./mkcerts.bash &&                            \
+sudo chown root:root ./certs/*.pem &&        \
+docker run --network=bridge                  \
+           --publish=80:8888                 \
+           --publish=443:4444                \
+           --publish=9990:9999               \
            --volume `pwd`/certs:/certs:ro    \
            --volume `pwd`/datadir:/datadir   \
            --read-only                       \
            --cap-drop=all                    \
-           --cap-add=net_bind_service        \
            neubot/dash                       \
            -datadir /datadir                 \
+           -http-listen-address :8888        \
+           -https-listen-address :4444       \
+           -prometheusx.listen-address :9999 \
            -tls-cert /certs/cert.pem         \
            -tls-key /certs/key.pem
 ```
+
+This command will run `dash-server` in a container as the root user, with
+no capabilities, limiting access to the file system and exposing all the
+relevant ports: 80 for HTTP based tests, 443 for HTTPS tests, and 9990 to
+access prometheus metrics.
 
 ### Release
 

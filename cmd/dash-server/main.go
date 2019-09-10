@@ -2,21 +2,35 @@
 //
 // Usage:
 //
-//    dash-server [-datadir <datadir>]
+//    dash-server [-datadir <dirpath>]
+//                [-http-listen-address <endpoint>]
+//                [-https-listen-address <endpoint>]
 //                [-prometheusx.listen-address <endpoint>]
-//                 -autocert <fqdn>
+//                [-tls-cert <filepath>]
+//                [-tls-key <filepath>]
 //
 // The server will listen for incoming DASH experiment requests and
 // will keep serving them until it is interrupted.
 //
-// It will listen on `:80` and `:443`. To make `:443` work, you MUST
-// provide the FQDN for LetsEncrypt using `-autocert <fqdn>`.
+// By default the server listens for HTTP connections at `:8080` and
+// for HTTPS connections at `:8443`. It assumes the TLS certificate
+// is at `./cert.pem` and the TLS key is at `./key.pem`.
 //
-// The `-datadir <datadir>` flag specifies the directory where to write
+// The `-datadir <dirpath>` flag specifies the directory where to write
 // measurement results. By default is the current working directory.
+//
+// The `-http-listen-address <endpoint>` flag allows to set the TCP endpoint
+// where the server should listen for HTTP clients.
+//
+// The `-https-listen-address <endpoint>` flag allows to set the TCP endpoint
+// where the server should listen for HTTPS clients.
 //
 // The `-prometheusx.listen-address <endpoint>` flag controls the TCP
 // endpoint where the server will expose Prometheus metrics.
+//
+// The `-tls-cert <filepath>` flag allows to set the TLS certificate path.
+//
+// The `-tls-key <filepath>` flag allows to set the TLS key path.
 //
 // The server will emit access logs on the standard output using the
 // usual format. The server will emit error logging on the standard
@@ -29,8 +43,6 @@ import (
 	"net/http"
 	"os"
 
-	"golang.org/x/crypto/acme/autocert"
-
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/json"
 	"github.com/gorilla/handlers"
@@ -40,8 +52,21 @@ import (
 )
 
 var (
-	flagAutocert = flag.String("autocert", "", "FQDN for autocert")
-	flagDatadir  = flag.String("datadir", ".", "directory where to save results")
+	flagDatadir = flag.String(
+		"datadir", ".", "directory where to save results",
+	)
+	flagHTTPListenAddress = flag.String(
+		"http-listen-address", ":8080", "HTTP listening endpoint",
+	)
+	flagHTTPSListenAddress = flag.String(
+		"https-listen-address", ":8443", "HTTPS listening endpoint",
+	)
+	flagTLSCert = flag.String(
+		"tls-cert", "cert.pem", "path to the TLS certificate file to use",
+	)
+	flagTLSKey = flag.String(
+		"tls-key", "key.pem", "path to the TLS key to use",
+	)
 )
 
 func main() {
@@ -59,8 +84,10 @@ func main() {
 	handler.Logger = log.Log
 	rootHandler := handlers.LoggingHandler(os.Stdout, mux)
 	go func() {
-		listener := autocert.NewListener(*flagAutocert)
-		rtx.Must(http.Serve(listener, rootHandler), "Can't start HTTPS server")
+		rtx.Must(http.ListenAndServeTLS(
+			*flagHTTPSListenAddress, *flagTLSCert, *flagTLSKey, rootHandler,
+		), "Can't start HTTPS server")
 	}()
-	rtx.Must(http.ListenAndServe(":80", rootHandler), "Can't start HTTP server")
+	rtx.Must(http.ListenAndServe(
+		*flagHTTPListenAddress, rootHandler), "Can't start HTTP server")
 }

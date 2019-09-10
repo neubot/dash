@@ -4,13 +4,15 @@
 //
 //    dash-server [-datadir <datadir>]
 //                [-prometheusx.listen-address <endpoint>]
-//                 -autocert <fqdn>
+//                [-tls-key <key.pem>]
+//                [-tls-cert <cert.pem>]
 //
 // The server will listen for incoming DASH experiment requests and
 // will keep serving them until it is interrupted.
 //
-// It will listen on `:80` and `:443`. To make `:443` work, you MUST
-// provide the FQDN for LetsEncrypt using `-autocert <fqdn>`.
+// It will listen on `:80` and `:443`. Note that TLS code assumes
+// a `key.pem` and `cert.pem` files in the current directory. Adjust
+// these files locations using `-tls-key` and `-tls-cert`.
 //
 // The `-datadir <datadir>` flag specifies the directory where to write
 // measurement results. By default is the current working directory.
@@ -29,8 +31,6 @@ import (
 	"net/http"
 	"os"
 
-	"golang.org/x/crypto/acme/autocert"
-
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/json"
 	"github.com/gorilla/handlers"
@@ -40,8 +40,9 @@ import (
 )
 
 var (
-	flagAutocert = flag.String("autocert", "", "FQDN for autocert")
 	flagDatadir  = flag.String("datadir", ".", "directory where to save results")
+	flagTLSCert  = flag.String("tls-key", "cert.pem", "TLS certificate to use")
+	flagTLSKey   = flag.String("tls-key", "key.pem", "TLS key to use")
 )
 
 func main() {
@@ -59,8 +60,9 @@ func main() {
 	handler.Logger = log.Log
 	rootHandler := handlers.LoggingHandler(os.Stdout, mux)
 	go func() {
-		listener := autocert.NewListener(*flagAutocert)
-		rtx.Must(http.Serve(listener, rootHandler), "Can't start HTTPS server")
+		rtx.Must(http.ListenAndServeTLS(
+			":443", *flagTLSCert, *flagTLSKey, rootHandler,
+		), "Can't start HTTPS server")
 	}()
 	rtx.Must(http.ListenAndServe(":80", rootHandler), "Can't start HTTP server")
 }

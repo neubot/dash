@@ -21,14 +21,17 @@ docker tag neubot/dash neubot/dash:`git describe --tags --dirty`-`date -u +%Y%m%
 ### Test locally
 
 ```bash
+./mkcerts.bash
 docker run --network=host                    \
+           --volume `pwd`/certs:/certs:ro    \
            --volume `pwd`/datadir:/datadir   \
-           --volume `pwd`/cache:/root/.cache \
            --read-only                       \
            --cap-drop=all                    \
            --cap-add=net_bind_service        \
            neubot/dash                       \
-           -datadir /datadir
+           -datadir /datadir                 \
+           -tls-cert /certs/cert.pem         \
+           -tls-key /certs/key.pem
 ```
 
 ### Release

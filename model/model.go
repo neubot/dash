@@ -8,8 +8,8 @@ package model
 // of DASH, except ServerURL, added in MK v0.10.6.
 type ClientResults struct {
 	ConnectTime     float64 `json:"connect_time"`
-	DeltaSysTime    int64   `json:"delta_sys_time"`
-	DeltaUserTime   int64   `json:"delta_user_time"`
+	DeltaSysTime    float64  `json:"delta_sys_time"`
+	DeltaUserTime   float64  `json:"delta_user_time"`
 	Elapsed         float64 `json:"elapsed"`
 	ElapsedTarget   int64   `json:"elapsed_target"`
 	InternalAddress string  `json:"internal_address"`

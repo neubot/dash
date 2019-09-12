@@ -29,6 +29,7 @@ type sessionInfo struct {
 	serverSchema model.ServerSchema
 	stamp        time.Time
 }
+
 type dependencies struct {
 	GzipNewWriterLevel func(w io.Writer, level int) (*gzip.Writer, error)
 	IOUtilReadAll      func(r io.Reader) ([]byte, error)
@@ -293,7 +294,7 @@ type resultsFile struct {
 }
 
 func (h *Handler) savedata(session *sessionInfo) error {
-	name := path.Join(h.Datadir, session.stamp.Format("2006/01/02"))
+	name := path.Join(h.Datadir, "dash", session.stamp.Format("2006/01/02"))
 	err := h.deps.OSMkdirAll(name, 0755)
 	if err != nil {
 		h.Logger.Warnf("savedata: os.MkdirAll: %s", err.Error())

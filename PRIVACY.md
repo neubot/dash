@@ -17,8 +17,8 @@ Neubot used to be run by the [Nexa Center for Internet & Society](
 https://nexa.polito.it/) and is now run by Simone Basso, an
 independent Internet researcher who originally developed Neubot.
 
-Neubot has signed a Memorandum of Understanding (MoU) with [Measurement
-Lab](https://www.measurementlab.net/) that allows Neubot to host
+Simone Basso has signed a Memorandum of Understanding (MoU) with [Measurement
+Lab](https://www.measurementlab.net/) that allows Neubot to run
 measurement server-side software on the distributed fleet of measurement
 servers maintaned by Measurement Lab (henceforth M-Lab).
 

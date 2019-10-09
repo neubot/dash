@@ -103,14 +103,12 @@ data, thus taking it out of scope of the GDPR.
 Exercising the above-mentioned rights will require you to prove
 your identity. Neubot is committed to data privacy and specifically
 one of its core principles: data minimisation. As such, we will not
-request a copy of your ID to prove your identity.
-
-Because we collect only your IP address at the time the test is run, we
-have no means of proving the test data belongs to you.
-
-Should you wish to exercise the rights listed above, we require proof
-that this IP address belonged to you at the point in time when you conducted
-a specific test. Such proof could be provided in the form of a written
+request a copy of your ID to prove your identity. Because we collect
+only your IP address at the time the test is run, we have no means
+of proving the test data belongs to you. Should you wish to exercise
+the rights listed above, we require proof that this IP address
+belonged to you at the point in time when you conducted a specific
+test. Such proof could be provided in the form of a written
 confirmation from the resource holder (‘owner’) of the IP block
 your IP address is part of, for example your Internet Service
 Provider. You can find the details of the resource holder by using

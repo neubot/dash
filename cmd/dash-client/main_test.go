@@ -39,6 +39,7 @@ func TestMain(t *testing.T) {
 			time.Sleep(time.Duration(idx) * 100 * time.Millisecond)
 			client := client.New(clientName, clientVersion)
 			client.FQDN = URL.Host
+			client.Scheme = "http" // we use httptest.NewServer
 			errors[idx] = mainWithClientAndTimeout(client, 55*time.Second)
 			wg.Done()
 		}(i)

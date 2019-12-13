@@ -8,5 +8,5 @@ before_script:
 - go get github.com/mattn/goveralls
 
 script:
-- go test -v -coverprofile=coverage.cov -coverpkg=./... ./...
+- go test -race -v -coverprofile=coverage.cov -coverpkg=./... ./...
 - $GOPATH/bin/goveralls -coverprofile=coverage.cov -service=travis-ci

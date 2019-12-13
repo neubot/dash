@@ -31,20 +31,24 @@ func TestMain(t *testing.T) {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < 17; i++ {
+	const parallel = 17
+	errors := make([]error, 17)
+	for i := 0; i < parallel; i++ {
 		wg.Add(1)
-		go func(delay int) {
-			time.Sleep(time.Duration(delay) * time.Second)
+		go func(idx int) {
+			time.Sleep(time.Duration(idx) * 100 * time.Millisecond)
 			client := client.New(clientName, clientVersion)
 			client.FQDN = URL.Host
-			err := mainWithClientAndTimeout(client, 55*time.Second)
-			if err != nil {
-				t.Fatal(err)
-			}
+			errors[idx] = mainWithClientAndTimeout(client, 55*time.Second)
 			wg.Done()
 		}(i)
 	}
 	wg.Wait()
 	cancel()
 	handler.JoinReaper()
+	for i := 0; i < parallel; i++ {
+		if errors[i] != nil {
+			t.Fatal(errors[i])
+		}
+	}
 }

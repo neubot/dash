@@ -45,15 +45,9 @@ var (
 	flagScheme = flag.String("scheme", "http", "Scheme to use")
 )
 
-func internalmain() error {
-	log.SetLevel(log.DebugLevel)
-	flag.Parse()
-	ctx, cancel := context.WithTimeout(context.Background(), *flagTimeout)
+func mainWithClientAndTimeout(client *client.Client, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	client := client.New(clientName, clientVersion)
-	client.Logger = log.Log
-	client.FQDN = *flagHostname
-	client.Scheme = *flagScheme
 	ch, err := client.StartDownload(ctx)
 	if err != nil {
 		return err
@@ -74,6 +68,16 @@ func internalmain() error {
 	}
 	fmt.Printf("%s\n", string(data))
 	return nil
+}
+
+func internalmain() error {
+	log.SetLevel(log.DebugLevel)
+	flag.Parse()
+	client := client.New(clientName, clientVersion)
+	client.Logger = log.Log
+	client.FQDN = *flagHostname
+	client.Scheme = *flagScheme
+	return mainWithClientAndTimeout(client, *flagTimeout)
 }
 
 func main() {

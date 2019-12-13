@@ -50,8 +50,8 @@ github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORN
 github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0 h1:45sCR5RtlFHMR4UwH9sdQ5TC8v0qDQCHnXt+kaKSTVE=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
-github.com/m-lab/go v1.1.0 h1:BB1llaNFa2CbrqmDpRhwFGQCY726PtpqxlZykJrRN3Q=
-github.com/m-lab/go v1.1.0/go.mod h1:FcVx/N8dL5J5TVQ2L0d8/cAw/ljR6fhwZqvqZHrb5/Q=
+github.com/m-lab/go v1.2.0 h1:tIYz23bGCuw1AH7wl5h+vAJ5VV1aXgo9Zbl+Evkdp/o=
+github.com/m-lab/go v1.2.0/go.mod h1:FcVx/N8dL5J5TVQ2L0d8/cAw/ljR6fhwZqvqZHrb5/Q=
 github.com/m-lab/ndt7-client-go v0.0.0-20190724152841-ad7eefc52fe1 h1:lPFK+4ojybg/9OEaTfoJFteZnSnaiB5bo41GZ9Pn1ew=
 github.com/m-lab/ndt7-client-go v0.0.0-20190724152841-ad7eefc52fe1/go.mod h1:nD9WTkxP4/mV2ph5uUpVPD2ZOJdZ9QKPTKu3tJGkM9o=
 github.com/mattn/go-colorable v0.1.1/go.mod h1:FuOcm+DKB9mbwrcAfNl7/TZVBZ6rcnceauSikq3lYCQ=

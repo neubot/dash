@@ -82,8 +82,7 @@ type Client struct {
 	MLabNSClient *mlabns.Client
 
 	// Scheme is the Scheme to use. By default we configure
-	// it to "http". Future versions of the server will also
-	// have support for "https" testing.
+	// it to "https", but you can override it to "http".
 	Scheme string
 
 	begin         time.Time
@@ -119,7 +118,7 @@ func New(clientName, clientVersion string) (client *Client) {
 		MLabNSClient:  mlabns.NewClient("neubot", ua),
 		begin:         time.Now(),
 		numIterations: 15,
-		Scheme:        "http",
+		Scheme:        "https",
 		userAgent:     ua,
 	}
 	client.deps = dependencies{

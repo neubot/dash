@@ -247,6 +247,22 @@ func (h *Handler) genbody(count *int) (data []byte, err error) {
 }
 
 func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
+	// TODO(bassosimone): replace this example code with code that
+	// correctly gathers TCPInfo statistics for the socket.
+	if conn := contextConn(r.Context()); conn != nil {
+		// Note that with ndt7 we will have instead *websocket.Conn
+		// from which we'll get the conn rather than using contectConn
+		// like we're doing here.
+		if dashconn, ok := conn.(*dashconn); ok {
+			underlying := dashconn.Underlying()
+			tcpconn := underlying.(*net.TCPConn)
+			filep, err := tcpconn.File()
+			if err == nil {
+				defer filep.Close()
+				h.Logger.Debugf("filep: %+v", filep.Fd())
+			}
+		}
+	}
 	sessionID := r.Header.Get(authorization)
 	state := h.getSessionState(sessionID)
 	if state == sessionMissing {

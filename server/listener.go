@@ -5,6 +5,10 @@ import (
 	"crypto/tls"
 	"net"
 	"net/http"
+	"os"
+	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // ListenAndServeTLS is like http.ListenAndServeTLS except that it
@@ -61,9 +65,36 @@ func newdashlistener(inner net.Listener, config *tls.Config) *dashlistener {
 	return &dashlistener{Listener: inner, config: config}
 }
 
+func enableBBR(fp *os.File) error {
+	// Note: Fd() returns uintptr but on Unix we can safely use int for sockets.
+	return syscall.SetsockoptString(int(fp.Fd()), syscall.IPPROTO_TCP,
+		syscall.TCP_CONGESTION, "bbr")
+}
+
+func setPacingRate(fp *os.File) error {
+	//maxPacingRate := 10485760
+	maxPacingRate := 10485
+	return syscall.SetsockoptInt(int(fp.Fd()), syscall.SOL_SOCKET,
+		unix.SO_MAX_PACING_RATE, maxPacingRate)
+}
+
 func (dl *dashlistener) Accept() (net.Conn, error) {
 	underlying, err := dl.Listener.Accept()
 	if err != nil {
+		return nil, err
+	}
+	filep, err := underlying.(*net.TCPConn).File()
+	if err != nil {
+		underlying.Close()
+		return nil, err
+	}
+	defer filep.Close()
+	if err := enableBBR(filep); err != nil {
+		underlying.Close()
+		return nil, err
+	}
+	if err := setPacingRate(filep); err != nil {
+		underlying.Close()
 		return nil, err
 	}
 	conn := underlying

@@ -11,6 +11,7 @@ require (
 	github.com/m-lab/ndt7-client-go v0.0.0-20190724152841-ad7eefc52fe1
 	github.com/prometheus/client_golang v1.1.0 // indirect
 	github.com/stretchr/testify v1.4.0 // indirect
+	golang.org/x/sys v0.0.0-20190801041406-cbf593c0f2f3
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
 )
 

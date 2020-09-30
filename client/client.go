@@ -14,7 +14,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/m-lab/ndt7-client-go/mlabns"
+	"github.com/m-lab/ndt5-client-go/mlabns"
 	"github.com/neubot/dash/internal"
 	"github.com/neubot/dash/model"
 	"github.com/neubot/dash/spec"

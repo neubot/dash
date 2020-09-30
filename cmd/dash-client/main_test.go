@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/apex/log"
+	"github.com/neubot/dash/client"
 	"github.com/neubot/dash/server"
 )
 
@@ -20,29 +21,35 @@ func TestMain(t *testing.T) {
 	mux := http.NewServeMux()
 	handler := server.NewHandler("../../testdata")
 	ctx, cancel := context.WithCancel(context.Background())
+	handler.Logger = log.Log
 	handler.StartReaper(ctx)
 	handler.RegisterHandlers(mux)
-	handler.Logger = log.Log
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	URL, err := url.Parse(server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	*flagHostname = URL.Host
 	var wg sync.WaitGroup
-	for i := 0; i < 17; i++ {
+	const parallel = 17
+	errors := make([]error, 17)
+	for i := 0; i < parallel; i++ {
 		wg.Add(1)
-		go func(delay int) {
-			time.Sleep(time.Duration(delay) * time.Second)
-			err = internalmain()
-			if err != nil {
-				t.Fatal(err)
-			}
+		go func(idx int) {
+			time.Sleep(time.Duration(idx) * 100 * time.Millisecond)
+			client := client.New(clientName, clientVersion)
+			client.FQDN = URL.Host
+			client.Scheme = "http" // we use httptest.NewServer
+			errors[idx] = mainWithClientAndTimeout(client, 55*time.Second)
 			wg.Done()
 		}(i)
 	}
 	wg.Wait()
 	cancel()
 	handler.JoinReaper()
+	for i := 0; i < parallel; i++ {
+		if errors[i] != nil {
+			t.Fatal(errors[i])
+		}
+	}
 }

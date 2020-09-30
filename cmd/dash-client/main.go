@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/apex/log"
+	"github.com/m-lab/go/flagx"
 	"github.com/neubot/dash/client"
 )
 
@@ -42,18 +43,23 @@ var (
 	flagHostname = flag.String("hostname", "", "optional ndt7 server hostname")
 	flagTimeout  = flag.Duration(
 		"timeout", defaultTimeout, "time after which the test is aborted")
-	flagScheme = flag.String("scheme", "http", "Scheme to use")
+	flagScheme = flagx.Enum{
+		Options: []string{"https", "http"},
+		Value:   "https",
+	}
 )
 
-func internalmain() error {
-	log.SetLevel(log.DebugLevel)
-	flag.Parse()
-	ctx, cancel := context.WithTimeout(context.Background(), *flagTimeout)
+func init() {
+	flag.Var(
+		&flagScheme,
+		"scheme",
+		`Protocol scheme to use: either "https" (the default) or "http"`,
+	)
+}
+
+func mainWithClientAndTimeout(client *client.Client, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	client := client.New(clientName, clientVersion)
-	client.Logger = log.Log
-	client.FQDN = *flagHostname
-	client.Scheme = *flagScheme
 	ch, err := client.StartDownload(ctx)
 	if err != nil {
 		return err
@@ -74,6 +80,16 @@ func internalmain() error {
 	}
 	fmt.Printf("%s\n", string(data))
 	return nil
+}
+
+func internalmain() error {
+	log.SetLevel(log.DebugLevel)
+	flag.Parse()
+	client := client.New(clientName, clientVersion)
+	client.Logger = log.Log
+	client.FQDN = *flagHostname
+	client.Scheme = flagScheme.Value
+	return mainWithClientAndTimeout(client, *flagTimeout)
 }
 
 func main() {

@@ -134,3 +134,12 @@ func TestFmainFailure(t *testing.T) {
 		t.Fatal("not called")
 	}
 }
+
+func TestMainOnly(t *testing.T) {
+	mfunc := defaultMain
+	defer func() {
+		defaultMain = mfunc
+	}()
+	defaultMain = func(context.Context) error { return nil }
+	main()
+}

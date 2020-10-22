@@ -101,6 +101,8 @@ func fmain(f func(context.Context) error, e func(error, string, ...interface{}))
 	}
 }
 
+var defaultMain = internalmain // testability
+
 func main() {
-	fmain(internalmain, rtx.Must)
+	fmain(defaultMain, rtx.Must)
 }

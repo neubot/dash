@@ -335,6 +335,9 @@ func (c *Client) StartDownload(ctx context.Context) (<-chan model.ClientResults,
 		}
 		c.FQDN = fqdn
 	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err() // this line is useful to write better tests
+	}
 	c.Logger.Debugf("dash: using server: %s", c.FQDN)
 	ch := make(chan model.ClientResults)
 	go c.deps.Loop(ctx, ch)

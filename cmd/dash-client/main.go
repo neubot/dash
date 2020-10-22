@@ -30,6 +30,7 @@ import (
 
 	"github.com/apex/log"
 	"github.com/m-lab/go/flagx"
+	"github.com/m-lab/go/rtx"
 	"github.com/neubot/dash/client"
 )
 
@@ -57,43 +58,42 @@ func init() {
 	)
 }
 
-func mainWithClientAndTimeout(client *client.Client, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func realmain(ctx context.Context, client *client.Client, timeout time.Duration, onresult func()) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	ch, err := client.StartDownload(ctx)
 	if err != nil {
 		return err
 	}
 	for results := range ch {
-		data, err := json.Marshal(results)
-		if err != nil {
-			return err
+		if onresult != nil {
+			onresult() // this is an hook that we use for testing
 		}
+		data, err := json.Marshal(results)
+		rtx.PanicOnError(err, "json.Marshal should not fail")
 		fmt.Printf("%s\n", string(data))
 	}
 	if client.Error() != nil {
 		return client.Error()
 	}
 	data, err := json.Marshal(client.ServerResults())
-	if err != nil {
-		return err
-	}
+	rtx.PanicOnError(err, "json.Marshal should not fail")
 	fmt.Printf("%s\n", string(data))
 	return nil
 }
 
-func internalmain() error {
+func internalmain(ctx context.Context) error {
 	log.SetLevel(log.DebugLevel)
 	flag.Parse()
 	client := client.New(clientName, clientVersion)
 	client.Logger = log.Log
 	client.FQDN = *flagHostname
 	client.Scheme = flagScheme.Value
-	return mainWithClientAndTimeout(client, *flagTimeout)
+	return realmain(ctx, client, *flagTimeout, nil)
 }
 
 func main() {
-	if err := internalmain(); err != nil {
+	if err := internalmain(context.Background()); err != nil {
 		log.WithError(err).Fatal("DASH experiment failed")
 	}
 }

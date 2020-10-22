@@ -82,8 +82,11 @@ func realmain(ctx context.Context, client *client.Client, timeout time.Duration,
 	return nil
 }
 
+func init() {
+	log.SetLevel(log.DebugLevel) // needs to run exactly once
+}
+
 func internalmain(ctx context.Context) error {
-	log.SetLevel(log.DebugLevel)
 	flag.Parse()
 	client := client.New(clientName, clientVersion)
 	client.Logger = log.Log

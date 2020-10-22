@@ -95,8 +95,12 @@ func internalmain(ctx context.Context) error {
 	return realmain(ctx, client, *flagTimeout, nil)
 }
 
-func main() {
-	if err := internalmain(context.Background()); err != nil {
-		log.WithError(err).Fatal("DASH experiment failed")
+func fmain(f func(context.Context) error, e func(error, string, ...interface{})) {
+	if err := f(context.Background()); err != nil {
+		e(err, "DASH experiment failed")
 	}
+}
+
+func main() {
+	fmain(internalmain, rtx.Must)
 }

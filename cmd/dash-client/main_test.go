@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -112,4 +113,24 @@ func TestInternalMainCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // immediately hang up
 	internalmain(ctx)
+}
+
+func TestFmainSuccess(t *testing.T) {
+	fmain(func(context.Context) error {
+		return nil
+	}, func(error, string, ...interface{}) {
+		t.Fatal("should not be called")
+	})
+}
+
+func TestFmainFailure(t *testing.T) {
+	var called int32
+	fmain(func(context.Context) error {
+		return errors.New("antani")
+	}, func(error, string, ...interface{}) {
+		atomic.AddInt32(&called, 1)
+	})
+	if called != 1 {
+		t.Fatal("not called")
+	}
 }

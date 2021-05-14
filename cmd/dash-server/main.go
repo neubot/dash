@@ -84,10 +84,10 @@ func main() {
 	handler.Logger = log.Log
 	rootHandler := handlers.LoggingHandler(os.Stdout, mux)
 	go func() {
-		rtx.Must(http.ListenAndServeTLS(
+		rtx.Must(server.ListenAndServeTLS(
 			*flagHTTPSListenAddress, *flagTLSCert, *flagTLSKey, rootHandler,
 		), "Can't start HTTPS server")
 	}()
-	rtx.Must(http.ListenAndServe(
+	rtx.Must(server.ListenAndServe(
 		*flagHTTPListenAddress, rootHandler), "Can't start HTTP server")
 }

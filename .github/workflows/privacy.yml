@@ -11,4 +11,8 @@ jobs:
           go-version: "1.18.3"
       - uses: actions/checkout@v2
       - run: go build -v ./cmd/dash-client
-      - run: ./dash-client
+      - run: |
+          if ./dash-client; then
+            echo "expected this command to fail"
+            exit 1
+          fi

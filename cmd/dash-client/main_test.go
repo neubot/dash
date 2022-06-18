@@ -17,6 +17,10 @@ import (
 	"github.com/neubot/dash/server"
 )
 
+func init() {
+	*flagY = true // acknowledge privacy policy for running integration tests
+}
+
 func TestRealmainSuccessful(t *testing.T) {
 	testhelper(t, func(idx int, config testconfig) {
 		time.Sleep(time.Duration(idx) * 100 * time.Millisecond)

@@ -1,4 +1,4 @@
-name: coverage
+name: privacy
 on:
   pull_request:
   push:

@@ -53,3 +53,15 @@ access prometheus metrics.
 ```bash
 docker push neubot/dash
 ```
+
+## Client
+
+Build using:
+
+```bash
+go build -v ./cmd/dash-client
+```
+
+Make sure you read [PRIVACY.md](PRIVACY.md) before running. The command
+will anyway refuse to run unless you acknowledge the privacy policy by
+passing the `-y` command line flag.

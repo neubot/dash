@@ -2,7 +2,9 @@
 //
 // Usage:
 //
-//    dash-client [-hostname <name>] [-timeout <string>] [-scheme <scheme>]
+//    dash-client -y [-hostname <name>] [-timeout <string>] [-scheme <scheme>]
+//
+// The `-y` flag indicates you have read the data policy and accept it.
 //
 // The `-hostname <name>` flag specifies to use the `name` hostname for
 // performing the dash test. The default is to autodiscover a suitable
@@ -26,6 +28,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/apex/log"
@@ -48,6 +51,7 @@ var (
 		Options: []string{"https", "http"},
 		Value:   "https",
 	}
+	flagY = flag.Bool("y", false, "I have read and accept the privacy policy at https://github.com/neubot/dash/blob/master/PRIVACY.md")
 )
 
 func init() {
@@ -88,6 +92,14 @@ func init() {
 
 func internalmain(ctx context.Context) error {
 	flag.Parse()
+	if !*flagY {
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "Please, read the privacy policy at https://github.com/neubot/dash/blob/master/PRIVACY.md.\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "If you accept the privacy policy, rerun adding the `-y` flag to the command line.\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		os.Exit(1)
+	}
 	client := client.New(clientName, clientVersion)
 	client.Logger = log.Log
 	client.FQDN = *flagHostname

@@ -1,4 +1,4 @@
-/certs
+.DS_Store
 /datadir
 /dash-client
 /dash-server

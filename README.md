@@ -20,8 +20,10 @@ docker tag neubot/dash neubot/dash:`git describe --tags --dirty`-`date -u +%Y%m%
 
 ### Test locally
 
+The following command should work on a Linux system:
+
 ```bash
-rm -f ./certs/*.pem &&                       \
+rm -f ./certs/cert.pem ./certs/key.pem &&    \
 ./mkcerts.bash &&                            \
 sudo chown root:root ./certs/*.pem &&        \
 docker run --network=bridge                  \
@@ -51,3 +53,15 @@ access prometheus metrics.
 ```bash
 docker push neubot/dash
 ```
+
+## Client
+
+Build using:
+
+```bash
+go build -v ./cmd/dash-client
+```
+
+Make sure you read [PRIVACY.md](PRIVACY.md) before running. The command
+will anyway refuse to run unless you acknowledge the privacy policy by
+passing the `-y` command line flag.

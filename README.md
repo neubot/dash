@@ -62,6 +62,14 @@ The procedure to update the version that runs on M-Lab is the following:
 2. ask the m-lab staff to pull the tagged version
 3. open a pull request [for neubot.jsonnet at m-lab/k8s-support](https://github.com/m-lab/k8s-support/blob/master/k8s/daemonsets/experiments/neubot.jsonnet#L17)
 
+At this point, `neubot/dash` is deployed in staging. To test, use
+
+```
+https://locate-dot-mlab-staging.appspot.com/v2/nearest/neubot/dash
+```
+
+as the locate URL instead of the canonical one.
+
 ## Client
 
 Build using:

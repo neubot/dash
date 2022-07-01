@@ -50,9 +50,17 @@ access prometheus metrics.
 
 ### Release
 
+To push the container at DockerHub, run:
+
 ```bash
 docker push neubot/dash
 ```
+
+The procedure to update the version that runs on M-Lab is the following:
+
+1. open a pull request at m-lab/dash so they know they need to sync from this repo
+2. ask the m-lab staff to pull the tagged version
+3. open a pull request [for neubot.jsonnet at m-lab/k8s-support](https://github.com/m-lab/k8s-support/blob/master/k8s/daemonsets/experiments/neubot.jsonnet#L17)
 
 ## Client
 

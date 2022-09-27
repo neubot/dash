@@ -25,7 +25,7 @@ const (
 	libraryName = "neubot-dash"
 
 	// libraryVersion is the version of this library.
-	libraryVersion = "0.1.0"
+	libraryVersion = "0.4.3"
 
 	// magicVersion is a magic number that identifies in a unique
 	// way this implementation of DASH. 0.007xxxyyy is Measurement
@@ -35,7 +35,7 @@ const (
 
 var (
 	// ErrServerBusy is returned when the Neubot server is busy.
-	ErrServerBusy = errors.New("Server busy; try again later")
+	ErrServerBusy = errors.New("server busy; try again later")
 
 	// errHTTPRequestFailed is returned when an HTTP request fails.
 	errHTTPRequestFailed = errors.New("HTTP request failed")
@@ -55,7 +55,13 @@ type dependencies struct {
 	Negotiate      func(ctx context.Context) (model.NegotiateResponse, error)
 }
 
-// Client is a DASH client
+// MLabNSClient is the interface implemented by ndt5.MLabNSClient.
+type MLabNSClient interface {
+	Query(ctx context.Context) (string, error)
+}
+
+// Client is a DASH client. The zero value of this structure is
+// invalid. Use NewClient to correctly initialize the fields.
 type Client struct {
 	// ClientName is the name of the client application. This field is
 	// initialized by the NewClient constructor.
@@ -77,11 +83,11 @@ type Client struct {
 	// NewClient constructor to a do-nothing logger.
 	Logger model.Logger
 
-	// MLabNSClient is the mlabns client. We'll configure it with
-	// defaults in NewClient and you may override it.
-	MLabNSClient *mlabns.Client
+	// MLabNSClient is the mlabns client. We'll configure it with a suitable
+	// implementation in NewClient, but you may override it.
+	MLabNSClient MLabNSClient
 
-	// Scheme is the Scheme to use. By default we configure
+	// Scheme is the protocol scheme to use. By default NewClient configures
 	// it to "https", but you can override it to "http".
 	Scheme string
 
@@ -229,7 +235,7 @@ func (c *Client) download(
 	// turns out that Neubot and MK do the same. So, we do what they do. At
 	// the same time, we are currently not able to include the overhead that
 	// is caused by HTTP headers etc. So, we're a bit less precise.
-	current.Elapsed = time.Now().Sub(savedTicks).Seconds()
+	current.Elapsed = time.Since(savedTicks).Seconds()
 	current.Received = int64(len(data))
 	current.RequestTicks = savedTicks.Sub(c.begin).Seconds()
 	current.Timestamp = time.Now().Unix()

@@ -39,7 +39,7 @@ import (
 
 const (
 	clientName     = "dash-client-go"
-	clientVersion  = "0.1.0"
+	clientVersion  = "0.4.3"
 	defaultTimeout = 55 * time.Second
 )
 

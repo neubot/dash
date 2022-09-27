@@ -32,6 +32,13 @@ access prometheus metrics.
 
 ### Release
 
+First of all, update the version number in:
+
+* [cmd/dash-client/main.go](cmd/dash-client/main.go);
+* [client/client.go](client/client.go);
+
+Then commit the changes and tag a new release.
+
 To push the container at DockerHub, run:
 
 ```bash

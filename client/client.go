@@ -55,11 +55,6 @@ type dependencies struct {
 	Negotiate      func(ctx context.Context) (model.NegotiateResponse, error)
 }
 
-// MLabNSClient is the interface implemented by ndt5.MLabNSClient.
-type MLabNSClient interface {
-	Query(ctx context.Context) (string, error)
-}
-
 // Client is a DASH client. The zero value of this structure is
 // invalid. Use NewClient to correctly initialize the fields.
 type Client struct {
@@ -85,7 +80,7 @@ type Client struct {
 
 	// MLabNSClient is the mlabns client. We'll configure it with a suitable
 	// implementation in NewClient, but you may override it.
-	MLabNSClient MLabNSClient
+	MLabNSClient *mlabns.Client
 
 	// Scheme is the protocol scheme to use. By default NewClient configures
 	// it to "https", but you can override it to "http".

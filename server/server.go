@@ -41,7 +41,8 @@ type dependencies struct {
 	UUIDNewRandom      func() (uuid.UUID, error)
 }
 
-// Handler is the DASH handler
+// Handler is the DASH handler. Please use NewHandler to construct
+// a valid instance of this type (the zero value is invalid).
 type Handler struct {
 	// Datadir is the directory where to save measurements
 	Datadir string
@@ -135,7 +136,7 @@ func (h *Handler) popSession(UUID string) *sessionInfo {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
 	session, ok := h.sessions[UUID]
-	if ok == false {
+	if !ok {
 		return nil
 	}
 	delete(h.sessions, UUID)
@@ -264,9 +265,7 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	siz := strings.Replace(r.URL.Path, "/dash/download", "", -1)
-	if strings.HasPrefix(siz, "/") {
-		siz = siz[1:]
-	}
+	siz = strings.TrimPrefix(siz, "/")
 	if siz == "" {
 		siz = minSizeString
 	}
@@ -286,11 +285,6 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.Write(data)
-}
-
-type resultsFile struct {
-	writer *gzip.Writer
-	fp     *os.File
 }
 
 func (h *Handler) savedata(session *sessionInfo) error {

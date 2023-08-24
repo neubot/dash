@@ -1,6 +1,6 @@
 module github.com/neubot/dash
 
-go 1.18
+go 1.20
 
 require (
 	github.com/apex/log v1.9.0

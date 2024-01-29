@@ -243,7 +243,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prepare the esponse.
+	// Prepare the response.
 	//
 	// Implementation note: we do not include any vector of speeds
 	// in the response, meaning that the client should use its predefined

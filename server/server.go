@@ -478,7 +478,7 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 // prefix is used to submit client measurements.
 //
 // For historical reasons /dash/download is an alias for
-// using the /dash/download prefix.
+// using the /dash/download/ prefix.
 func (h *Handler) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc(spec.NegotiatePath, h.negotiate)
 	mux.HandleFunc(spec.DownloadPath, h.download)

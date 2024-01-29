@@ -435,7 +435,7 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// un,arshal client data from JSON into the server data structure
+	// unmarshal client data from JSON into the server data structure
 	err = json.Unmarshal(data, &session.serverSchema.Client)
 	if err != nil {
 		h.Logger.Warnf("collect: json.Unmarshal: %s", err.Error())

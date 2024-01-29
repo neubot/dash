@@ -81,22 +81,23 @@ type Handler struct {
 // NewHandler creates a new [*Handler] instance.
 func NewHandler(datadir string) (handler *Handler) {
 	handler = &Handler{
-		Datadir: datadir,
-		Logger:  internal.NoLogger{},
-		deps: dependencies{
-			GzipNewWriterLevel: gzip.NewWriterLevel,
-			IOReadAll:          io.ReadAll,
-			JSONMarshal:        json.Marshal,
-			OSMkdirAll:         os.MkdirAll,
-			OSOpenFile:         os.OpenFile,
-			RandRead:           rand.Read, // math/rand is okay to use here
-			Savedata:           handler.savedata,
-			UUIDNewRandom:      uuid.NewRandom,
-		},
+		Datadir:       datadir,
+		Logger:        internal.NoLogger{},
+		deps:          dependencies{}, // initialized later
 		maxIterations: 17,
 		mtx:           sync.Mutex{},
 		sessions:      make(map[string]*sessionInfo),
 		stop:          make(chan interface{}),
+	}
+	handler.deps = dependencies{
+		GzipNewWriterLevel: gzip.NewWriterLevel,
+		IOReadAll:          io.ReadAll,
+		JSONMarshal:        json.Marshal,
+		OSMkdirAll:         os.MkdirAll,
+		OSOpenFile:         os.OpenFile,
+		RandRead:           rand.Read, // math/rand is okay to use here
+		Savedata:           handler.savedata,
+		UUIDNewRandom:      uuid.NewRandom,
 	}
 	return
 }

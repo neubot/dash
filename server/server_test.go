@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -72,7 +71,7 @@ func TestServerNegotiate(t *testing.T) {
 		if resp.StatusCode != 200 {
 			t.Fatal("Expected different status code")
 		}
-		data, err := ioutil.ReadAll(resp.Body)
+		data, err := io.ReadAll(resp.Body)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -213,7 +212,7 @@ func TestServerDownload(t *testing.T) {
 		if resp.StatusCode != 200 {
 			t.Fatal("Expected different status code")
 		}
-		data, err := ioutil.ReadAll(resp.Body)
+		data, err := io.ReadAll(resp.Body)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -268,7 +267,7 @@ func TestServerSaveData(t *testing.T) {
 		handler.deps.OSOpenFile = func(
 			name string, flag int, perm os.FileMode,
 		) (*os.File, error) {
-			return ioutil.TempFile("", "neubot-dash-tests")
+			return os.CreateTemp("", "neubot-dash-tests")
 		}
 		handler.deps.GzipNewWriterLevel = func(
 			w io.Writer, level int,
@@ -292,7 +291,7 @@ func TestServerSaveData(t *testing.T) {
 		handler.deps.OSOpenFile = func(
 			name string, flag int, perm os.FileMode,
 		) (*os.File, error) {
-			return ioutil.TempFile("", "neubot-dash-tests")
+			return os.CreateTemp("", "neubot-dash-tests")
 		}
 		handler.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
 			return nil, errors.New("Mocked error")
@@ -311,14 +310,21 @@ func TestServerSaveData(t *testing.T) {
 		handler.deps.OSMkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
+		sessionInfo.stamp = time.Date(2024, time.January, 29, 20, 23, 0, 0, time.UTC) // predictable
+		expectFilename := "dash/2024/01/29/neubot-dash-20240129T202300.000000000Z.json.gz"
+		var gotFilename string
 		handler.deps.OSOpenFile = func(
 			name string, flag int, perm os.FileMode,
 		) (*os.File, error) {
-			return ioutil.TempFile("", "neubot-dash-tests")
+			gotFilename = name
+			return os.CreateTemp("", "neubot-dash-tests")
 		}
 		err := handler.savedata(sessionInfo)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if gotFilename != expectFilename {
+			t.Fatal("expected", expectFilename, "got", gotFilename)
 		}
 	})
 }
@@ -335,7 +341,7 @@ func TestServerCollect(t *testing.T) {
 		}
 	})
 
-	t.Run("ioutil.ReadAll failure", func(t *testing.T) {
+	t.Run("io.ReadAll failure", func(t *testing.T) {
 		const session = "deadbeef"
 		handler := NewHandler("", log.Log)
 		handler.createSession(session)

@@ -79,8 +79,8 @@ type Handler struct {
 }
 
 // NewHandler creates a new [*Handler] instance.
-func NewHandler(datadir string) (handler *Handler) {
-	handler = &Handler{
+func NewHandler(datadir string) *Handler {
+	handler := &Handler{
 		Datadir:       datadir,
 		Logger:        internal.NoLogger{},
 		deps:          dependencies{}, // initialized later
@@ -99,7 +99,7 @@ func NewHandler(datadir string) (handler *Handler) {
 		Savedata:           handler.savedata,
 		UUIDNewRandom:      uuid.NewRandom,
 	}
-	return
+	return handler
 }
 
 // createSession creates a session using the given UUID.

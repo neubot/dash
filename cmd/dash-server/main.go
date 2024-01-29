@@ -2,12 +2,12 @@
 //
 // Usage:
 //
-//    dash-server [-datadir <dirpath>]
-//                [-http-listen-address <endpoint>]
-//                [-https-listen-address <endpoint>]
-//                [-prometheusx.listen-address <endpoint>]
-//                [-tls-cert <filepath>]
-//                [-tls-key <filepath>]
+//	dash-server [-datadir <dirpath>]
+//	            [-http-listen-address <endpoint>]
+//	            [-https-listen-address <endpoint>]
+//	            [-prometheusx.listen-address <endpoint>]
+//	            [-tls-cert <filepath>]
+//	            [-tls-key <filepath>]
 //
 // The server will listen for incoming DASH experiment requests and
 // will keep serving them until it is interrupted.
@@ -78,10 +78,9 @@ func main() {
 	promServer := prometheusx.MustServeMetrics()
 	defer promServer.Close()
 	mux := http.NewServeMux()
-	handler := server.NewHandler(*flagDatadir)
+	handler := server.NewHandler(*flagDatadir, log.Log)
 	handler.StartReaper(context.Background())
 	handler.RegisterHandlers(mux)
-	handler.Logger = log.Log
 	rootHandler := handlers.LoggingHandler(os.Stdout, mux)
 	go func() {
 		rtx.Must(http.ListenAndServeTLS(

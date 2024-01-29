@@ -486,7 +486,7 @@ func (h *Handler) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc(spec.CollectPath, h.collect)
 }
 
-// reaperLoop is the goroutine that periodically reapts expired sessions.
+// reaperLoop is the goroutine that periodically reaps expired sessions.
 func (h *Handler) reaperLoop(ctx context.Context) {
 	h.Logger.Debug("reaperLoop: start")
 	defer h.Logger.Debug("reaperLoop: done")

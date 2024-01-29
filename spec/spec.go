@@ -8,7 +8,10 @@ const (
 	// M-Lab anymore and hence we need to make a breaking change.
 	CurrentServerSchemaVersion = 4
 
-	// NegotiatePath is the URL path used to negotiate
+	// NegotiatePath is the URL path used to negotiate. We use /negotiate/dash
+	// rather than /dash/negotiate for historical reasons. Neubot used to
+	// handle all requests for negotiation by handling the /negotiate prefix
+	// and routing to the proper experiment.
 	NegotiatePath = "/negotiate/dash"
 
 	// DownloadPathNoTrailingSlash is like DownloadPath but has no
@@ -21,7 +24,10 @@ const (
 	// the server to send you as part of the next chunk.
 	DownloadPath = DownloadPathNoTrailingSlash + "/"
 
-	// CollectPath is the URL path used to collect
+	// CollectPath is the URL path used to collect. We use /collect/dash
+	// rather than /dash/collect for historical reasons. Neubot used to
+	// handle all requests for collection by handling the /collect prefix
+	// and routing to the proper experiment.
 	CollectPath = "/collect/dash"
 )
 

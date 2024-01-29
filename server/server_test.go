@@ -342,7 +342,7 @@ func TestServerCollect(t *testing.T) {
 		req := new(http.Request)
 		req.Header = make(http.Header)
 		req.Header.Add(authorization, session)
-		handler.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+		handler.deps.IOReadAll = func(r io.Reader) ([]byte, error) {
 			return nil, errors.New("Mocked error")
 		}
 		w := httptest.NewRecorder()
@@ -360,7 +360,7 @@ func TestServerCollect(t *testing.T) {
 		req := new(http.Request)
 		req.Header = make(http.Header)
 		req.Header.Add(authorization, session)
-		handler.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+		handler.deps.IOReadAll = func(r io.Reader) ([]byte, error) {
 			return []byte("{"), nil
 		}
 		w := httptest.NewRecorder()
@@ -378,7 +378,7 @@ func TestServerCollect(t *testing.T) {
 		req := new(http.Request)
 		req.Header = make(http.Header)
 		req.Header.Add(authorization, session)
-		handler.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+		handler.deps.IOReadAll = func(r io.Reader) ([]byte, error) {
 			return []byte("[]"), nil
 		}
 		handler.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
@@ -399,7 +399,7 @@ func TestServerCollect(t *testing.T) {
 		req := new(http.Request)
 		req.Header = make(http.Header)
 		req.Header.Add(authorization, session)
-		handler.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+		handler.deps.IOReadAll = func(r io.Reader) ([]byte, error) {
 			return []byte("[]"), nil
 		}
 		handler.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
@@ -423,7 +423,7 @@ func TestServerCollect(t *testing.T) {
 		req := new(http.Request)
 		req.Header = make(http.Header)
 		req.Header.Add(authorization, session)
-		handler.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+		handler.deps.IOReadAll = func(r io.Reader) ([]byte, error) {
 			return []byte("[]"), nil
 		}
 		handler.deps.JSONMarshal = func(v interface{}) ([]byte, error) {

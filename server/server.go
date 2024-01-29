@@ -219,7 +219,7 @@ func (h *Handler) reapStaleSessions() {
 // this preliminary measurement stage. This implementation relies on m-lab's locate
 // service to implement access control so we only negotiate the parameters. We
 // assume that m-lab's incoming request interceptor will take care of the authorization
-// token passed as part of the request itself.
+// token passed as part of the request URL.
 //
 // This method SAFELY MUTATES the sessions map by creating a new session UUID. If
 // clients do not call this method first, measurements will fail for lack of a valid

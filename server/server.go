@@ -60,8 +60,7 @@ type Handler struct {
 	// deps contains the [*Handler] dependencies.
 	deps dependencies
 
-	// logger is the logger to use. This field is initialized by the
-	// NewHandler constructor to a do-nothing logger.
+	// logger is the logger to use.
 	logger model.Logger
 
 	// maxIterations is the maximum allowed number of iterations.

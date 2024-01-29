@@ -8,13 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"runtime"
 	"time"
 
-	"github.com/m-lab/ndt5-client-go/mlabns"
+	"github.com/m-lab/locate/api/locate"
+	v2 "github.com/m-lab/locate/api/v2"
 	"github.com/neubot/dash/internal"
 	"github.com/neubot/dash/model"
 	"github.com/neubot/dash/spec"
@@ -41,6 +42,11 @@ var (
 	errHTTPRequestFailed = errors.New("HTTP request failed")
 )
 
+// locator is an interface used to locate a server.
+type locator interface {
+	Nearest(ctx context.Context, service string) ([]v2.Target, error)
+}
+
 type dependencies struct {
 	Collect  func(ctx context.Context, authorization string) error
 	Download func(
@@ -50,7 +56,7 @@ type dependencies struct {
 	HTTPNewRequest func(method, url string, body io.Reader) (*http.Request, error)
 	IOUtilReadAll  func(r io.Reader) ([]byte, error)
 	JSONMarshal    func(v interface{}) ([]byte, error)
-	Locate         func(ctx context.Context) (string, error)
+	Locator        locator
 	Loop           func(ctx context.Context, ch chan<- model.ClientResults)
 	Negotiate      func(ctx context.Context) (model.NegotiateResponse, error)
 }
@@ -66,10 +72,6 @@ type Client struct {
 	// initialized by the NewClient constructor.
 	ClientVersion string
 
-	// FQDN is the server of the server to use. If the FQDN is not
-	// specified, we'll use mlab-ns to discover a server.
-	FQDN string
-
 	// HTTPClient is the HTTP client used by this implementation. This field
 	// is initialized by the NewClient to http.DefaultClient.
 	HTTPClient *http.Client
@@ -78,13 +80,9 @@ type Client struct {
 	// NewClient constructor to a do-nothing logger.
 	Logger model.Logger
 
-	// MLabNSClient is the mlabns client. We'll configure it with a suitable
-	// implementation in NewClient, but you may override it.
-	MLabNSClient *mlabns.Client
-
-	// Scheme is the protocol scheme to use. By default NewClient configures
-	// it to "https", but you can override it to "http".
-	Scheme string
+	// NegotiateURL is the URL used to negotiate. If this field is nil, we're
+	// going to use m-lab/locate's v2 API to obtain a suitable URL.
+	NegotiateURL *url.URL
 
 	begin         time.Time
 	clientResults []model.ClientResults
@@ -103,10 +101,6 @@ func (c *Client) httpClientDo(req *http.Request) (*http.Response, error) {
 	return c.HTTPClient.Do(req)
 }
 
-func (c *Client) locate(ctx context.Context) (string, error) {
-	return c.MLabNSClient.Query(ctx)
-}
-
 // New creates a new Client instance using the specified
 // client application name and version.
 func New(clientName, clientVersion string) (client *Client) {
@@ -116,10 +110,8 @@ func New(clientName, clientVersion string) (client *Client) {
 		ClientVersion: clientVersion,
 		HTTPClient:    http.DefaultClient,
 		Logger:        internal.NoLogger{},
-		MLabNSClient:  mlabns.NewClient("neubot", ua),
 		begin:         time.Now(),
 		numIterations: 15,
-		Scheme:        "https",
 		userAgent:     ua,
 	}
 	client.deps = dependencies{
@@ -127,9 +119,9 @@ func New(clientName, clientVersion string) (client *Client) {
 		Download:       client.download,
 		HTTPClientDo:   client.httpClientDo,
 		HTTPNewRequest: http.NewRequest,
-		IOUtilReadAll:  ioutil.ReadAll,
+		IOUtilReadAll:  io.ReadAll,
 		JSONMarshal:    json.Marshal,
-		Locate:         client.locate,
+		Locator:        locate.NewClient(ua),
 		Loop:           client.loop,
 		Negotiate:      client.negotiate,
 	}
@@ -147,11 +139,8 @@ func (c *Client) negotiate(ctx context.Context) (model.NegotiateResponse, error)
 	if err != nil {
 		return negotiateResponse, err
 	}
+	URL := c.NegotiateURL
 	c.Logger.Debugf("dash: body: %s", string(data))
-	var URL url.URL
-	URL.Scheme = c.Scheme
-	URL.Host = c.FQDN
-	URL.Path = spec.NegotiatePath
 	req, err := c.deps.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
 	if err != nil {
 		return negotiateResponse, err
@@ -190,6 +179,15 @@ func (c *Client) negotiate(ctx context.Context) (model.NegotiateResponse, error)
 	return negotiateResponse, nil
 }
 
+// makeDownloadURL makes the download URL from the negotiate URL.
+func makeDownloadURL(negotiateURL *url.URL, path string) *url.URL {
+	return &url.URL{
+		Scheme: negotiateURL.Scheme,
+		Host:   negotiateURL.Host,
+		Path:   path,
+	}
+}
+
 // download implements the DASH test proper. We compute the number of bytes
 // to request given the current rate, download the fake DASH segment, and
 // then we return the measured performance of this segment to the caller. This
@@ -198,10 +196,7 @@ func (c *Client) download(
 	ctx context.Context, authorization string, current *model.ClientResults,
 ) error {
 	nbytes := (current.Rate * 1000 * current.ElapsedTarget) >> 3
-	var URL url.URL
-	URL.Scheme = c.Scheme
-	URL.Host = c.FQDN
-	URL.Path = fmt.Sprintf("%s%d", spec.DownloadPath, nbytes)
+	URL := makeDownloadURL(c.NegotiateURL, fmt.Sprintf("%s%d", spec.DownloadPath, nbytes))
 	req, err := c.deps.HTTPNewRequest("GET", URL.String(), nil)
 	if err != nil {
 		return err
@@ -238,6 +233,15 @@ func (c *Client) download(
 	return nil
 }
 
+// makeCollectURL makes the collect URL from the negotiate URL.
+func makeCollectURL(negotiateURL *url.URL) *url.URL {
+	return &url.URL{
+		Scheme: negotiateURL.Scheme,
+		Host:   negotiateURL.Host,
+		Path:   spec.CollectPath,
+	}
+}
+
 // collect is the final phase of the test. We send to the server what we
 // measured and we receive back what it has measured.
 func (c *Client) collect(ctx context.Context, authorization string) error {
@@ -246,10 +250,7 @@ func (c *Client) collect(ctx context.Context, authorization string) error {
 		return err
 	}
 	c.Logger.Debugf("dash: body: %s", string(data))
-	var URL url.URL
-	URL.Scheme = c.Scheme
-	URL.Host = c.FQDN
-	URL.Path = spec.CollectPath
+	URL := makeCollectURL(c.NegotiateURL)
 	req, err := c.deps.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
 	if err != nil {
 		return err
@@ -327,19 +328,28 @@ func (c *Client) loop(ctx context.Context, ch chan<- model.ClientResults) {
 // results on the returned channel, then maybe it means the experiment
 // has somehow worked. You can see if there has been any error during
 // the experiment by using the Error function.
+//
+// This method MUTATES the [*Client] by setting .NegotiateURL using
+// the mlab/locate v2 API if .NegotiateURL is originally nil.
 func (c *Client) StartDownload(ctx context.Context) (<-chan model.ClientResults, error) {
-	if c.FQDN == "" {
-		c.Logger.Debug("dash: discovering server with mlabns")
-		fqdn, err := c.deps.Locate(ctx)
+	if c.NegotiateURL == nil {
+		c.Logger.Debug("dash: discovering server with locate v2")
+		targets, err := c.deps.Locator.Nearest(ctx, "neubot/dash")
+		if err != nil {
+			log.Printf("ELLIOT: %s", err.Error())
+			return nil, err
+		}
+		URL := targets[0].URLs["https:///negotiate/dash"]
+		parsed, err := url.Parse(URL)
 		if err != nil {
 			return nil, err
 		}
-		c.FQDN = fqdn
+		c.NegotiateURL = parsed
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err() // this line is useful to write better tests
 	}
-	c.Logger.Debugf("dash: using server: %s", c.FQDN)
+	c.Logger.Debugf("dash: using server: %v", c.NegotiateURL)
 	ch := make(chan model.ClientResults)
 	go c.deps.Loop(ctx, ch)
 	return ch, nil

@@ -150,7 +150,7 @@ func (h *Handler) getSessionState(UUID string) sessionState {
 // updateSession updates the state of the session with the given UUID after
 // we successfully performed a new iteration.
 //
-// When the UUID maps to an existing session, this method MUTATES the
+// When the UUID maps to an existing session, this method SAFELY MUTATES the
 // session's serverSchema by adding a new measurement result and by
 // incrementing the number of iterations.
 //

@@ -386,7 +386,7 @@ func (h *Handler) savedata(session *sessionInfo) error {
 	}
 
 	// append the file name to the path
-	name = path.Join(name, "/neubot-dash-"+session.stamp.Format("20060102T150405.000000000Z")+".json.gz")
+	name = path.Join(name, "neubot-dash-"+session.stamp.Format("20060102T150405.000000000Z")+".json.gz")
 
 	// open the results file
 	//

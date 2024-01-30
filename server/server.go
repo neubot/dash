@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +33,11 @@ type sessionInfo struct {
 
 	// stamp is when we created this struct.
 	stamp time.Time
+}
+
+// timeNowUTC returns the current time using UTC.
+func timeNowUTC() time.Time {
+	return time.Now().UTC()
 }
 
 // dependencies abstracts the dependencies used by [*Handler].
@@ -104,7 +110,7 @@ func NewHandler(datadir string, logger model.Logger) *Handler {
 //
 // This method LOCKS and MUTATES the .sessions field.
 func (h *Handler) createSession(UUID string) {
-	now := time.Now()
+	now := timeNowUTC()
 	session := &sessionInfo{
 		stamp: now,
 		serverSchema: model.ServerSchema{
@@ -156,7 +162,7 @@ func (h *Handler) getSessionState(UUID string) sessionState {
 // The integer argument, currently ignored, contains the number of bytes
 // that were sent as part of the current DASH iteration.
 func (h *Handler) updateSession(UUID string, _ int) {
-	now := time.Now()
+	now := timeNowUTC()
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
 	session, ok := h.sessions[UUID]
@@ -198,7 +204,7 @@ func (h *Handler) reapStaleSessions() {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
 	h.logger.Debugf("reapStaleSessions: inspecting %d sessions", len(h.sessions))
-	now := time.Now()
+	now := timeNowUTC()
 	var stale []string
 	for UUID, session := range h.sessions {
 		const toomuch = 60 * time.Second
@@ -381,9 +387,7 @@ func (h *Handler) savedata(session *sessionInfo) error {
 	}
 
 	// append the file name to the path
-	//
-	// TODO(bassosimone): this code does not work as intended on Windows
-	name += "/neubot-dash-" + session.stamp.Format("20060102T150405.000000000Z") + ".json.gz"
+	name = filepath.Join(name, "neubot-dash-"+session.stamp.Format("20060102T150405.000000000Z")+".json.gz")
 
 	// open the results file
 	//

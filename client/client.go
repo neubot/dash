@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/m-lab/locate/api/locate"
-	v2 "github.com/m-lab/locate/api/v2"
+	locatev2 "github.com/m-lab/locate/api/v2"
 	"github.com/neubot/dash/internal"
 	"github.com/neubot/dash/model"
 	"github.com/neubot/dash/spec"
@@ -43,7 +43,7 @@ var (
 
 // locator is an interface used to locate a server.
 type locator interface {
-	Nearest(ctx context.Context, service string) ([]v2.Target, error)
+	Nearest(ctx context.Context, service string) ([]locatev2.Target, error)
 }
 
 // dependencies contains mockable dependencies to test the client

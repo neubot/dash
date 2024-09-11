@@ -74,7 +74,7 @@ type dependencies struct {
 	// Locator allows to override the [locator] to use.
 	Locator locator
 
-	// Loop allows to override the function running the DASH client loop.
+	// Loop allows to override the method running the DASH client loop.
 	Loop func(ctx context.Context, ch chan<- model.ClientResults, negotiateURL *url.URL)
 
 	// Negotiate allows to override the method performing the negotiate phase.
@@ -384,10 +384,7 @@ func (c *Client) collect(
 		return err
 	}
 
-	// 5. parse the response body
-	//
-	// Implementation note: we are not saving the response and we just
-	// limit ourselves with checking it's a valid JSON here.
+	// 5. parse the response body and save it for the caller to see
 	c.Logger.Debugf("dash: body: %s", string(data))
 	return json.Unmarshal(data, &c.serverResults)
 }
@@ -454,11 +451,11 @@ func (c *Client) loop(
 // the experiment by using the Error function.
 func (c *Client) StartDownload(ctx context.Context) (<-chan model.ClientResults, error) {
 
-	// 1. use the provided -fqdn or use m-lab/locate/v2
+	// 1. use the provided FQDN or use m-lab/locate/v2
 	var negotiateURL *url.URL
 	switch {
 
-	// 1.1: the user manually specified the server -fqdn
+	// 1.1: the user manually specified the server FQDN
 	case c.FQDN != "":
 		negotiateURL = &url.URL{}
 		negotiateURL.Scheme = c.Scheme
@@ -503,15 +500,19 @@ func (c *Client) StartDownload(ctx context.Context) (<-chan model.ClientResults,
 // Error returns the error that occurred during the test, if any. A nil
 // return value means that all was good. A returned error does not however
 // necessarily mean that all was bad; you may have _some_ data.
+//
+// To avoid data races you MUST call this method after the channel
+// returned by [*Client.StartDownload] has been drained.
 func (c *Client) Error() error {
-	// TODO(bassosimone): I am not convinced about writing into the
-	// err field without any locking and should double check this
 	return c.err
 }
 
 // ServerResults returns the results of the experiment collected by the
-// server. In case Error() returns non nil, this function will typically
+// server. In case [*Client.Error] returns non nil, this function will typically
 // return an empty slice to the caller.
+//
+// To avoid data races you MUST call this method after the channel
+// returned by [*Client.StartDownload] has been drained.
 func (c *Client) ServerResults() []model.ServerResults {
 	return c.serverResults
 }

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	v2 "github.com/m-lab/locate/api/v2"
+	locatev2 "github.com/m-lab/locate/api/v2"
 	"github.com/neubot/dash/model"
 )
 
@@ -370,7 +370,7 @@ func TestClientLoop(t *testing.T) {
 type failingLocator struct{}
 
 // Nearest implements locator.
-func (f *failingLocator) Nearest(ctx context.Context, service string) ([]v2.Target, error) {
+func (f *failingLocator) Nearest(ctx context.Context, service string) ([]locatev2.Target, error) {
 	return nil, errors.New("mocked error")
 }
 

@@ -1,4 +1,4 @@
-FROM golang:1.20 as build
+FROM golang:1.23 as build
 ADD . /go/src/github.com/neubot/dash
 WORKDIR /go/src/github.com/neubot/dash
 RUN CGO_ENABLED=0 go build -v -tags netgo -ldflags "-s -w -extldflags \"-static\"" ./cmd/dash-server

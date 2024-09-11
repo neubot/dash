@@ -59,7 +59,7 @@ type dependencies struct {
 		current *model.ClientResults,
 		negotiateURL *url.URL) error
 
-	// HTTPClientDo allows to override calling the [*http.Client.Do].
+	// HTTPClientDo allows to override calling [*http.Client.Do] in tests.
 	HTTPClientDo func(req *http.Request) (*http.Response, error)
 
 	// HTTPNewRequest allows to override calling [http.NewRequest].

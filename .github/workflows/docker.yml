@@ -1,0 +1,13 @@
+# Make sure we can build the docker container
+name: docker
+on:
+  pull_request:
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: make buildcontainer

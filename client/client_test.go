@@ -5,12 +5,13 @@ import (
 	"context"
 	"errors"
 	"io"
-	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
 
+	v2 "github.com/m-lab/locate/api/v2"
 	"github.com/neubot/dash/model"
 )
 
@@ -25,7 +26,7 @@ func TestClientNegotiate(t *testing.T) {
 		client.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
 			return nil, errors.New("Mocked error")
 		}
-		_, err := client.negotiate(context.Background())
+		_, err := client.negotiate(context.Background(), &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -38,7 +39,7 @@ func TestClientNegotiate(t *testing.T) {
 		) (*http.Request, error) {
 			return nil, errors.New("Mocked error")
 		}
-		_, err := client.negotiate(context.Background())
+		_, err := client.negotiate(context.Background(), &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -49,7 +50,7 @@ func TestClientNegotiate(t *testing.T) {
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return nil, errors.New("Mocked error")
 		}
-		_, err := client.negotiate(context.Background())
+		_, err := client.negotiate(context.Background(), &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -60,26 +61,27 @@ func TestClientNegotiate(t *testing.T) {
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 404,
+				Body:       io.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
-		_, err := client.negotiate(context.Background())
+		_, err := client.negotiate(context.Background(), &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
 	})
 
-	t.Run("ioutil.ReadAll failure", func(t *testing.T) {
+	t.Run("io.ReadAll failure", func(t *testing.T) {
 		client := New(softwareName, softwareVersion)
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+				Body:       io.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
 		client.deps.IOReadAll = func(r io.Reader) ([]byte, error) {
 			return nil, errors.New("Mocked error")
 		}
-		_, err := client.negotiate(context.Background())
+		_, err := client.negotiate(context.Background(), &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -90,10 +92,10 @@ func TestClientNegotiate(t *testing.T) {
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+				Body:       io.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
-		_, err := client.negotiate(context.Background())
+		_, err := client.negotiate(context.Background(), &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -104,10 +106,10 @@ func TestClientNegotiate(t *testing.T) {
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       ioutil.NopCloser(strings.NewReader("{}")),
+				Body:       io.NopCloser(strings.NewReader("{}")),
 			}, nil
 		}
-		_, err := client.negotiate(context.Background())
+		_, err := client.negotiate(context.Background(), &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -118,13 +120,13 @@ func TestClientNegotiate(t *testing.T) {
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 200,
-				Body: ioutil.NopCloser(strings.NewReader(`{
+				Body: io.NopCloser(strings.NewReader(`{
 					"Authorization": "0xdeadbeef",
 					"Unchoked": 1
 				}`)),
 			}, nil
 		}
-		_, err := client.negotiate(context.Background())
+		_, err := client.negotiate(context.Background(), &url.URL{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -140,7 +142,7 @@ func TestClientDownload(t *testing.T) {
 			return nil, errors.New("Mocked error")
 		}
 		current := new(model.ClientResults)
-		err := client.download(context.Background(), "abc", current)
+		err := client.download(context.Background(), "abc", current, &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -152,7 +154,7 @@ func TestClientDownload(t *testing.T) {
 			return nil, errors.New("Mocked error")
 		}
 		current := new(model.ClientResults)
-		err := client.download(context.Background(), "abc", current)
+		err := client.download(context.Background(), "abc", current, &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -163,28 +165,29 @@ func TestClientDownload(t *testing.T) {
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 404,
+				Body:       io.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
 		current := new(model.ClientResults)
-		err := client.download(context.Background(), "abc", current)
+		err := client.download(context.Background(), "abc", current, &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
 	})
 
-	t.Run("ioutil.ReadAll failure", func(t *testing.T) {
+	t.Run("io.ReadAll failure", func(t *testing.T) {
 		client := New(softwareName, softwareVersion)
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+				Body:       io.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
 		client.deps.IOReadAll = func(r io.Reader) ([]byte, error) {
 			return nil, errors.New("Mocked error")
 		}
 		current := new(model.ClientResults)
-		err := client.download(context.Background(), "abc", current)
+		err := client.download(context.Background(), "abc", current, &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -195,11 +198,11 @@ func TestClientDownload(t *testing.T) {
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+				Body:       io.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
 		current := new(model.ClientResults)
-		err := client.download(context.Background(), "abc", current)
+		err := client.download(context.Background(), "abc", current, &url.URL{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,7 +215,7 @@ func TestClientCollect(t *testing.T) {
 		client.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
 			return nil, errors.New("Mocked error")
 		}
-		err := client.collect(context.Background(), "abc")
+		err := client.collect(context.Background(), "abc", &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -225,7 +228,7 @@ func TestClientCollect(t *testing.T) {
 		) (*http.Request, error) {
 			return nil, errors.New("Mocked error")
 		}
-		err := client.collect(context.Background(), "abc")
+		err := client.collect(context.Background(), "abc", &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -236,7 +239,7 @@ func TestClientCollect(t *testing.T) {
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return nil, errors.New("Mocked error")
 		}
-		err := client.collect(context.Background(), "abc")
+		err := client.collect(context.Background(), "abc", &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -247,26 +250,27 @@ func TestClientCollect(t *testing.T) {
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 404,
+				Body:       io.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
-		err := client.collect(context.Background(), "abc")
+		err := client.collect(context.Background(), "abc", &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
 	})
 
-	t.Run("ioutil.ReadAll failure", func(t *testing.T) {
+	t.Run("io.ReadAll failure", func(t *testing.T) {
 		client := New(softwareName, softwareVersion)
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+				Body:       io.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
 		client.deps.IOReadAll = func(r io.Reader) ([]byte, error) {
 			return nil, errors.New("Mocked error")
 		}
-		err := client.collect(context.Background(), "abc")
+		err := client.collect(context.Background(), "abc", &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -277,10 +281,10 @@ func TestClientCollect(t *testing.T) {
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+				Body:       io.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
-		err := client.collect(context.Background(), "abc")
+		err := client.collect(context.Background(), "abc", &url.URL{})
 		if err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -291,10 +295,10 @@ func TestClientCollect(t *testing.T) {
 		client.deps.HTTPClientDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       ioutil.NopCloser(strings.NewReader("[]")),
+				Body:       io.NopCloser(strings.NewReader("[]")),
 			}, nil
 		}
-		err := client.collect(context.Background(), "abc")
+		err := client.collect(context.Background(), "abc", &url.URL{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -305,10 +309,10 @@ func TestClientLoop(t *testing.T) {
 	t.Run("negotiate failure", func(t *testing.T) {
 		ch := make(chan model.ClientResults)
 		client := New(softwareName, softwareVersion)
-		client.deps.Negotiate = func(ctx context.Context) (model.NegotiateResponse, error) {
+		client.deps.Negotiate = func(ctx context.Context, negotiateURL *url.URL) (model.NegotiateResponse, error) {
 			return model.NegotiateResponse{}, errors.New("Mocked error")
 		}
-		client.loop(context.Background(), ch)
+		client.loop(context.Background(), ch, &url.URL{})
 		if client.err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -317,15 +321,16 @@ func TestClientLoop(t *testing.T) {
 	t.Run("download failure", func(t *testing.T) {
 		ch := make(chan model.ClientResults)
 		client := New(softwareName, softwareVersion)
-		client.deps.Negotiate = func(ctx context.Context) (model.NegotiateResponse, error) {
+		client.deps.Negotiate = func(ctx context.Context, negotiateURL *url.URL) (model.NegotiateResponse, error) {
 			return model.NegotiateResponse{}, nil
 		}
 		client.deps.Download = func(
-			ctx context.Context, authorization string, current *model.ClientResults,
+			ctx context.Context, authorization string,
+			current *model.ClientResults, negotiateURL *url.URL,
 		) error {
 			return errors.New("Mocked error")
 		}
-		client.loop(context.Background(), ch)
+		client.loop(context.Background(), ch, &url.URL{})
 		if client.err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -334,15 +339,16 @@ func TestClientLoop(t *testing.T) {
 	t.Run("collect failure", func(t *testing.T) {
 		ch := make(chan model.ClientResults)
 		client := New(softwareName, softwareVersion)
-		client.deps.Negotiate = func(ctx context.Context) (model.NegotiateResponse, error) {
+		client.deps.Negotiate = func(ctx context.Context, negotiateURL *url.URL) (model.NegotiateResponse, error) {
 			return model.NegotiateResponse{}, nil
 		}
 		client.deps.Download = func(
-			ctx context.Context, authorization string, current *model.ClientResults,
+			ctx context.Context, authorization string,
+			current *model.ClientResults, negotiateURL *url.URL,
 		) error {
 			return nil
 		}
-		client.deps.Collect = func(ctx context.Context, authorization string) error {
+		client.deps.Collect = func(ctx context.Context, authorization string, negotiateURL *url.URL) error {
 			return errors.New("Mocked error")
 		}
 		var wg sync.WaitGroup
@@ -353,7 +359,7 @@ func TestClientLoop(t *testing.T) {
 				// drain channel
 			}
 		}()
-		client.loop(context.Background(), ch)
+		client.loop(context.Background(), ch, &url.URL{})
 		if client.err == nil {
 			t.Fatal("Expected an error here")
 		}
@@ -361,12 +367,17 @@ func TestClientLoop(t *testing.T) {
 	})
 }
 
+type failingLocator struct{}
+
+// Nearest implements locator.
+func (f *failingLocator) Nearest(ctx context.Context, service string) ([]v2.Target, error) {
+	return nil, errors.New("mocked error")
+}
+
 func TestClientStartDownload(t *testing.T) {
 	t.Run("mlabns failure", func(t *testing.T) {
 		client := New(softwareName, softwareVersion)
-		client.deps.Locate = func(ctx context.Context) (string, error) {
-			return "", errors.New("Mocked error")
-		}
+		client.deps.Locator = &failingLocator{}
 		ch, err := client.StartDownload(context.Background())
 		if err == nil {
 			t.Fatal("Expected an error here")
@@ -378,7 +389,7 @@ func TestClientStartDownload(t *testing.T) {
 
 	t.Run("common case", func(t *testing.T) {
 		client := New(softwareName, softwareVersion)
-		client.deps.Loop = func(ctx context.Context, ch chan<- model.ClientResults) {
+		client.deps.Loop = func(ctx context.Context, ch chan<- model.ClientResults, negotiateURL *url.URL) {
 			close(ch)
 		}
 		ch, err := client.StartDownload(context.Background())

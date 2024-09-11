@@ -20,6 +20,8 @@ import (
 	"github.com/neubot/dash/spec"
 )
 
+// TODO(bassosimone): we should define the version in a single place
+
 const (
 	// libraryName is the name of this library
 	libraryName = "neubot-dash"
@@ -384,8 +386,8 @@ func (c *Client) collect(
 
 	// 5. parse the response body
 	//
-	// Implementation note: historically this client did never care
-	// about saving the response body and we're still doing this
+	// Implementation note: we are not saving the response and we just
+	// limit ourselves with checking it's a valid JSON here.
 	c.Logger.Debugf("dash: body: %s", string(data))
 	return json.Unmarshal(data, &c.serverResults)
 }
@@ -458,6 +460,7 @@ func (c *Client) StartDownload(ctx context.Context) (<-chan model.ClientResults,
 
 	// 1.1: the user manually specified the server -fqdn
 	case c.FQDN != "":
+		negotiateURL = &url.URL{}
 		negotiateURL.Scheme = c.Scheme
 		negotiateURL.Host = c.FQDN
 		negotiateURL.Path = spec.NegotiatePath

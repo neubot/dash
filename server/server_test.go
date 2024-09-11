@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,7 +21,7 @@ import (
 
 func TestServerNegotiate(t *testing.T) {
 	t.Run("net.SplitHostPort failure", func(t *testing.T) {
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		req := new(http.Request)
 		w := httptest.NewRecorder()
 		handler.negotiate(w, req)
@@ -33,7 +32,7 @@ func TestServerNegotiate(t *testing.T) {
 	})
 
 	t.Run("uuid.NewRandom failure", func(t *testing.T) {
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.deps.UUIDNewRandom = func() (uuid.UUID, error) {
 			return uuid.UUID{}, errors.New("Mocked error")
 		}
@@ -48,7 +47,7 @@ func TestServerNegotiate(t *testing.T) {
 	})
 
 	t.Run("json.Marshal failure", func(t *testing.T) {
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
 			return nil, errors.New("Mocked error")
 		}
@@ -63,7 +62,7 @@ func TestServerNegotiate(t *testing.T) {
 	})
 
 	t.Run("common case", func(t *testing.T) {
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		req := new(http.Request)
 		req.RemoteAddr = "127.0.0.1:8080"
 		w := httptest.NewRecorder()
@@ -72,7 +71,7 @@ func TestServerNegotiate(t *testing.T) {
 		if resp.StatusCode != 200 {
 			t.Fatal("Expected different status code")
 		}
-		data, err := ioutil.ReadAll(resp.Body)
+		data, err := io.ReadAll(resp.Body)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -100,7 +99,7 @@ func TestServerNegotiate(t *testing.T) {
 }
 
 func BenchmarkServerGenbody(b *testing.B) {
-	handler := NewHandler("")
+	handler := NewHandler("", log.Log)
 	for i := 0; i < b.N; i++ {
 		count := maxSize
 		handler.genbody(&count)
@@ -109,7 +108,7 @@ func BenchmarkServerGenbody(b *testing.B) {
 
 func TestServerGenbody(t *testing.T) {
 	t.Run("If size is too small", func(t *testing.T) {
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		count := minSize - 100
 		data, err := handler.genbody(&count)
 		if err != nil {
@@ -121,7 +120,7 @@ func TestServerGenbody(t *testing.T) {
 	})
 
 	t.Run("If size is too large", func(t *testing.T) {
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		count := maxSize + 100
 		data, err := handler.genbody(&count)
 		if err != nil {
@@ -135,7 +134,7 @@ func TestServerGenbody(t *testing.T) {
 
 func TestServerDownload(t *testing.T) {
 	t.Run("session missing", func(t *testing.T) {
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		req := new(http.Request)
 		w := httptest.NewRecorder()
 		handler.download(w, req)
@@ -147,7 +146,7 @@ func TestServerDownload(t *testing.T) {
 
 	t.Run("session expired", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		handler.maxIterations = 0
 		req := new(http.Request)
@@ -163,7 +162,7 @@ func TestServerDownload(t *testing.T) {
 
 	t.Run("strcov.Atoi failure", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		req := new(http.Request)
 		req.URL = new(url.URL)
@@ -180,7 +179,7 @@ func TestServerDownload(t *testing.T) {
 
 	t.Run("rand.Read failure", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		handler.deps.RandRead = func(p []byte) (n int, err error) {
 			return 0, errors.New("Mocked error")
@@ -200,7 +199,7 @@ func TestServerDownload(t *testing.T) {
 
 	t.Run("common case", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		req := new(http.Request)
 		req.URL = new(url.URL)
@@ -213,7 +212,7 @@ func TestServerDownload(t *testing.T) {
 		if resp.StatusCode != 200 {
 			t.Fatal("Expected different status code")
 		}
-		data, err := ioutil.ReadAll(resp.Body)
+		data, err := io.ReadAll(resp.Body)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -226,7 +225,7 @@ func TestServerDownload(t *testing.T) {
 func TestServerSaveData(t *testing.T) {
 	t.Run("os.MkdirAll failure", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		sessionInfo := handler.popSession(session)
 		handler.deps.OSMkdirAll = func(path string, perm os.FileMode) error {
@@ -240,7 +239,7 @@ func TestServerSaveData(t *testing.T) {
 
 	t.Run("os.OpenFile failure", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		sessionInfo := handler.popSession(session)
 		handler.deps.OSMkdirAll = func(path string, perm os.FileMode) error {
@@ -259,7 +258,7 @@ func TestServerSaveData(t *testing.T) {
 
 	t.Run("gzip.NewWriterLevel failure", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		sessionInfo := handler.popSession(session)
 		handler.deps.OSMkdirAll = func(path string, perm os.FileMode) error {
@@ -268,7 +267,7 @@ func TestServerSaveData(t *testing.T) {
 		handler.deps.OSOpenFile = func(
 			name string, flag int, perm os.FileMode,
 		) (*os.File, error) {
-			return ioutil.TempFile("", "neubot-dash-tests")
+			return os.CreateTemp("", "neubot-dash-tests")
 		}
 		handler.deps.GzipNewWriterLevel = func(
 			w io.Writer, level int,
@@ -283,7 +282,7 @@ func TestServerSaveData(t *testing.T) {
 
 	t.Run("json.Marshal failure", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		sessionInfo := handler.popSession(session)
 		handler.deps.OSMkdirAll = func(path string, perm os.FileMode) error {
@@ -292,7 +291,7 @@ func TestServerSaveData(t *testing.T) {
 		handler.deps.OSOpenFile = func(
 			name string, flag int, perm os.FileMode,
 		) (*os.File, error) {
-			return ioutil.TempFile("", "neubot-dash-tests")
+			return os.CreateTemp("", "neubot-dash-tests")
 		}
 		handler.deps.JSONMarshal = func(v interface{}) ([]byte, error) {
 			return nil, errors.New("Mocked error")
@@ -305,27 +304,34 @@ func TestServerSaveData(t *testing.T) {
 
 	t.Run("common case", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		sessionInfo := handler.popSession(session)
 		handler.deps.OSMkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
+		sessionInfo.stamp = time.Date(2024, time.January, 29, 20, 23, 0, 0, time.UTC) // predictable
+		expectFilename := "dash/2024/01/29/neubot-dash-20240129T202300.000000000Z.json.gz"
+		var gotFilename string
 		handler.deps.OSOpenFile = func(
 			name string, flag int, perm os.FileMode,
 		) (*os.File, error) {
-			return ioutil.TempFile("", "neubot-dash-tests")
+			gotFilename = name
+			return os.CreateTemp("", "neubot-dash-tests")
 		}
 		err := handler.savedata(sessionInfo)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if gotFilename != expectFilename {
+			t.Fatal("expected", expectFilename, "got", gotFilename)
 		}
 	})
 }
 
 func TestServerCollect(t *testing.T) {
 	t.Run("session missing", func(t *testing.T) {
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		req := new(http.Request)
 		w := httptest.NewRecorder()
 		handler.collect(w, req)
@@ -335,9 +341,9 @@ func TestServerCollect(t *testing.T) {
 		}
 	})
 
-	t.Run("ioutil.ReadAll failure", func(t *testing.T) {
+	t.Run("io.ReadAll failure", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		req := new(http.Request)
 		req.Header = make(http.Header)
@@ -355,7 +361,7 @@ func TestServerCollect(t *testing.T) {
 
 	t.Run("json.Unmarshal failure", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		req := new(http.Request)
 		req.Header = make(http.Header)
@@ -373,7 +379,7 @@ func TestServerCollect(t *testing.T) {
 
 	t.Run("json.Marshal failure", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		req := new(http.Request)
 		req.Header = make(http.Header)
@@ -394,7 +400,7 @@ func TestServerCollect(t *testing.T) {
 
 	t.Run("savedata failure", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		req := new(http.Request)
 		req.Header = make(http.Header)
@@ -418,7 +424,7 @@ func TestServerCollect(t *testing.T) {
 
 	t.Run("common case", func(t *testing.T) {
 		const session = "deadbeef"
-		handler := NewHandler("")
+		handler := NewHandler("", log.Log)
 		handler.createSession(session)
 		req := new(http.Request)
 		req.Header = make(http.Header)
@@ -443,11 +449,10 @@ func TestServerCollect(t *testing.T) {
 
 func TestServerReaper(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping this test in short mode")
+		t.Skip("skipping test in short mode")
 	}
 	log.SetLevel(log.DebugLevel)
-	handler := NewHandler("")
-	handler.Logger = log.Log
+	handler := NewHandler("", log.Log)
 	ctx, cancel := context.WithCancel(context.Background())
 	handler.StartReaper(ctx)
 	for i := 0; i < 17; i++ {

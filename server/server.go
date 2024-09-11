@@ -12,13 +12,13 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/neubot/dash/internal"
 	"github.com/neubot/dash/model"
 	"github.com/neubot/dash/spec"
 )
@@ -33,6 +33,11 @@ type sessionInfo struct {
 
 	// stamp is when we created this struct.
 	stamp time.Time
+}
+
+// timeNowUTC returns the current time using UTC.
+func timeNowUTC() time.Time {
+	return time.Now().UTC()
 }
 
 // dependencies abstracts the dependencies used by [*Handler].
@@ -55,15 +60,14 @@ type dependencies struct {
 // get rid of sessions that have been running for too much. If you don't
 // call StartReaper, you will eventually run out of RAM.
 type Handler struct {
-	// Datadir is the directory where to save measurements.
-	Datadir string
-
-	// Logger is the logger to use. This field is initialized by the
-	// NewHandler constructor to a do-nothing logger.
-	Logger model.Logger
+	// datadir is the directory where to save measurements.
+	datadir string
 
 	// deps contains the [*Handler] dependencies.
 	deps dependencies
+
+	// logger is the logger to use.
+	logger model.Logger
 
 	// maxIterations is the maximum allowed number of iterations.
 	maxIterations int64
@@ -79,33 +83,34 @@ type Handler struct {
 }
 
 // NewHandler creates a new [*Handler] instance.
-func NewHandler(datadir string) (handler *Handler) {
-	handler = &Handler{
-		Datadir: datadir,
-		Logger:  internal.NoLogger{},
-		deps: dependencies{
-			GzipNewWriterLevel: gzip.NewWriterLevel,
-			IOReadAll:          io.ReadAll,
-			JSONMarshal:        json.Marshal,
-			OSMkdirAll:         os.MkdirAll,
-			OSOpenFile:         os.OpenFile,
-			RandRead:           rand.Read, // math/rand is okay to use here
-			Savedata:           handler.savedata,
-			UUIDNewRandom:      uuid.NewRandom,
-		},
+func NewHandler(datadir string, logger model.Logger) *Handler {
+	handler := &Handler{
+		datadir:       datadir,
+		deps:          dependencies{}, // initialized later
+		logger:        logger,
 		maxIterations: 17,
 		mtx:           sync.Mutex{},
 		sessions:      make(map[string]*sessionInfo),
 		stop:          make(chan interface{}),
 	}
-	return
+	handler.deps = dependencies{
+		GzipNewWriterLevel: gzip.NewWriterLevel,
+		IOReadAll:          io.ReadAll,
+		JSONMarshal:        json.Marshal,
+		OSMkdirAll:         os.MkdirAll,
+		OSOpenFile:         os.OpenFile,
+		RandRead:           rand.Read, // math/rand is okay to use here
+		Savedata:           handler.savedata,
+		UUIDNewRandom:      uuid.NewRandom,
+	}
+	return handler
 }
 
 // createSession creates a session using the given UUID.
 //
 // This method LOCKS and MUTATES the .sessions field.
 func (h *Handler) createSession(UUID string) {
-	now := time.Now()
+	now := timeNowUTC()
 	session := &sessionInfo{
 		stamp: now,
 		serverSchema: model.ServerSchema{
@@ -157,7 +162,7 @@ func (h *Handler) getSessionState(UUID string) sessionState {
 // The integer argument, currently ignored, contains the number of bytes
 // that were sent as part of the current DASH iteration.
 func (h *Handler) updateSession(UUID string, _ int) {
-	now := time.Now()
+	now := timeNowUTC()
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
 	session, ok := h.sessions[UUID]
@@ -198,8 +203,8 @@ func (h *Handler) CountSessions() (count int) {
 func (h *Handler) reapStaleSessions() {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
-	h.Logger.Debugf("reapStaleSessions: inspecting %d sessions", len(h.sessions))
-	now := time.Now()
+	h.logger.Debugf("reapStaleSessions: inspecting %d sessions", len(h.sessions))
+	now := timeNowUTC()
 	var stale []string
 	for UUID, session := range h.sessions {
 		const toomuch = 60 * time.Second
@@ -207,7 +212,7 @@ func (h *Handler) reapStaleSessions() {
 			stale = append(stale, UUID)
 		}
 	}
-	h.Logger.Debugf("reapStaleSessions: reaping %d stale sessions", len(stale))
+	h.logger.Debugf("reapStaleSessions: reaping %d stale sessions", len(stale))
 	for _, UUID := range stale {
 		delete(h.sessions, UUID)
 	}
@@ -228,7 +233,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 	// Obtain the client's remote address.
 	address, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		h.Logger.Warnf("negotiate: net.SplitHostPort: %s", err.Error())
+		h.logger.Warnf("negotiate: net.SplitHostPort: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -238,7 +243,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 	// We assume we're not going to have UUID conflicts.
 	UUID, err := h.deps.UUIDNewRandom()
 	if err != nil {
-		h.Logger.Warnf("negotiate: uuid.NewRandom: %s", err.Error())
+		h.logger.Warnf("negotiate: uuid.NewRandom: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -263,7 +268,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 
 	// Make sure we can properly marshal the response.
 	if err != nil {
-		h.Logger.Warnf("negotiate: json.Marshal: %s", err.Error())
+		h.logger.Warnf("negotiate: json.Marshal: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -319,7 +324,7 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get(authorization)
 	state := h.getSessionState(sessionID)
 	if state == sessionMissing {
-		h.Logger.Warn("download: session missing")
+		h.logger.Warn("download: session missing")
 		w.WriteHeader(400)
 		return
 	}
@@ -332,7 +337,7 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	// the original implementation returning a value that seems to be much
 	// more useful and actionable to the client.
 	if state == sessionExpired {
-		h.Logger.Warn("download: session expired")
+		h.logger.Warn("download: session expired")
 		w.WriteHeader(429)
 		return
 	}
@@ -346,7 +351,7 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	}
 	count, err := strconv.Atoi(siz)
 	if err != nil {
-		h.Logger.Warnf("download: strconv.Atoi: %s", err.Error())
+		h.logger.Warnf("download: strconv.Atoi: %s", err.Error())
 		w.WriteHeader(400)
 		return
 	}
@@ -355,7 +360,7 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	// the acceptable bounds for the response size.
 	data, err := h.genbody(&count)
 	if err != nil {
-		h.Logger.Warnf("download: genbody: %s", err.Error())
+		h.logger.Warnf("download: genbody: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -372,19 +377,17 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 // savedata is an utility function saving information about this session.
 func (h *Handler) savedata(session *sessionInfo) error {
 	// obtain the directory path where to write
-	name := path.Join(h.Datadir, "dash", session.stamp.Format("2006/01/02"))
+	name := path.Join(h.datadir, "dash", session.stamp.Format("2006/01/02"))
 
 	// make sure we have the correct directory hierarchy
 	err := h.deps.OSMkdirAll(name, 0755)
 	if err != nil {
-		h.Logger.Warnf("savedata: os.MkdirAll: %s", err.Error())
+		h.logger.Warnf("savedata: os.MkdirAll: %s", err.Error())
 		return err
 	}
 
 	// append the file name to the path
-	//
-	// TODO(bassosimone): this code does not work as intended on Windows
-	name += "/neubot-dash-" + session.stamp.Format("20060102T150405.000000000Z") + ".json.gz"
+	name = filepath.Join(name, "neubot-dash-"+session.stamp.Format("20060102T150405.000000000Z")+".json.gz")
 
 	// open the results file
 	//
@@ -392,7 +395,7 @@ func (h *Handler) savedata(session *sessionInfo) error {
 	// unlikely to have conflicts. If I'm wrong, O_EXCL will let us know.
 	filep, err := h.deps.OSOpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
-		h.Logger.Warnf("savedata: os.OpenFile: %s", err.Error())
+		h.logger.Warnf("savedata: os.OpenFile: %s", err.Error())
 		return err
 	}
 	defer filep.Close()
@@ -400,7 +403,7 @@ func (h *Handler) savedata(session *sessionInfo) error {
 	// wrap the output file with a gzipper
 	zipper, err := h.deps.GzipNewWriterLevel(filep, gzip.BestSpeed)
 	if err != nil {
-		h.Logger.Warnf("savedata: gzip.NewWriterLevel: %s", err.Error())
+		h.logger.Warnf("savedata: gzip.NewWriterLevel: %s", err.Error())
 		return err
 	}
 	defer zipper.Close()
@@ -408,7 +411,7 @@ func (h *Handler) savedata(session *sessionInfo) error {
 	// marshal the measurement to JSON
 	data, err := h.deps.JSONMarshal(session.serverSchema)
 	if err != nil {
-		h.Logger.Warnf("savedata: json.Marshal: %s", err.Error())
+		h.logger.Warnf("savedata: json.Marshal: %s", err.Error())
 		return err
 	}
 
@@ -422,7 +425,7 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 	// make sure we have a session
 	session := h.popSession(r.Header.Get(authorization))
 	if session == nil {
-		h.Logger.Warn("collect: session missing")
+		h.logger.Warn("collect: session missing")
 		w.WriteHeader(400)
 		return
 	}
@@ -430,7 +433,7 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 	// read the incoming measurements collected by the client
 	data, err := h.deps.IOReadAll(r.Body)
 	if err != nil {
-		h.Logger.Warnf("collect: ioutil.ReadAll: %s", err.Error())
+		h.logger.Warnf("collect: io.ReadAll: %s", err.Error())
 		w.WriteHeader(400)
 		return
 	}
@@ -438,7 +441,7 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 	// unmarshal client data from JSON into the server data structure
 	err = json.Unmarshal(data, &session.serverSchema.Client)
 	if err != nil {
-		h.Logger.Warnf("collect: json.Unmarshal: %s", err.Error())
+		h.logger.Warnf("collect: json.Unmarshal: %s", err.Error())
 		w.WriteHeader(400)
 		return
 	}
@@ -446,7 +449,7 @@ func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {
 	// serialize all
 	data, err = h.deps.JSONMarshal(session.serverSchema.Server)
 	if err != nil {
-		h.Logger.Warnf("collect: json.Marshal: %s", err.Error())
+		h.logger.Warnf("collect: json.Marshal: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -488,8 +491,8 @@ func (h *Handler) RegisterHandlers(mux *http.ServeMux) {
 
 // reaperLoop is the goroutine that periodically reaps expired sessions.
 func (h *Handler) reaperLoop(ctx context.Context) {
-	h.Logger.Debug("reaperLoop: start")
-	defer h.Logger.Debug("reaperLoop: done")
+	h.logger.Debug("reaperLoop: start")
+	defer h.logger.Debug("reaperLoop: done")
 	defer close(h.stop)
 	for ctx.Err() == nil {
 		const reapInterval = 14 * time.Second

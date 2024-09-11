@@ -76,9 +76,8 @@ func testhelper(t *testing.T, f func(int, testconfig)) {
 		t.Skip("Skipping this test in short mode")
 	}
 	mux := http.NewServeMux()
-	handler := server.NewHandler("../../testdata")
+	handler := server.NewHandler("../../testdata", log.Log)
 	ctx, cancel := context.WithCancel(context.Background())
-	handler.Logger = log.Log
 	handler.StartReaper(ctx)
 	handler.RegisterHandlers(mux)
 	server := httptest.NewServer(mux)

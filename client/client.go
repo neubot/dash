@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -47,18 +46,37 @@ type locator interface {
 	Nearest(ctx context.Context, service string) ([]v2.Target, error)
 }
 
+// dependencies contains mockable dependencies to test the client
 type dependencies struct {
-	Collect  func(ctx context.Context, authorization string) error
+	// Collect allows to override the method performing the collect phase.
+	Collect func(ctx context.Context, authorization string, negotiateURL *url.URL) error
+
+	// Download allows to override the method performing the download phase.
 	Download func(
 		ctx context.Context, authorization string,
-		current *model.ClientResults) error
-	HTTPClientDo   func(req *http.Request) (*http.Response, error)
+		current *model.ClientResults,
+		negotiateURL *url.URL) error
+
+	// HTTPClientDo allows to override calling the [*http.Client.Do].
+	HTTPClientDo func(req *http.Request) (*http.Response, error)
+
+	// HTTPNewRequest allows to override calling [http.NewRequest].
 	HTTPNewRequest func(method, url string, body io.Reader) (*http.Request, error)
-	IOUtilReadAll  func(r io.Reader) ([]byte, error)
-	JSONMarshal    func(v interface{}) ([]byte, error)
-	Locator        locator
-	Loop           func(ctx context.Context, ch chan<- model.ClientResults)
-	Negotiate      func(ctx context.Context) (model.NegotiateResponse, error)
+
+	// IOReadAll allows to override calling [io.ReadAll].
+	IOReadAll func(r io.Reader) ([]byte, error)
+
+	// JSONUnmarshal allows to override calling [json.Unmarshal].
+	JSONMarshal func(v interface{}) ([]byte, error)
+
+	// Locator allows to override the [locator] to use.
+	Locator locator
+
+	// Loop allows to override the function running the DASH client loop.
+	Loop func(ctx context.Context, ch chan<- model.ClientResults, negotiateURL *url.URL)
+
+	// Negotiate allows to override the method performing the negotiate phase.
+	Negotiate func(ctx context.Context, negotiateURL *url.URL) (model.NegotiateResponse, error)
 }
 
 // Client is a DASH client. The zero value of this structure is
@@ -72,6 +90,10 @@ type Client struct {
 	// initialized by the NewClient constructor.
 	ClientVersion string
 
+	// FQDN is the server of the server to use. If the FQDN is not
+	// specified, we use m-lab/locate/v2 to discover a server.
+	FQDN string
+
 	// HTTPClient is the HTTP client used by this implementation. This field
 	// is initialized by the NewClient to http.DefaultClient.
 	HTTPClient *http.Client
@@ -80,17 +102,30 @@ type Client struct {
 	// NewClient constructor to a do-nothing logger.
 	Logger model.Logger
 
-	// NegotiateURL is the URL used to negotiate. If this field is nil, we're
-	// going to use m-lab/locate's v2 API to obtain a suitable URL.
-	NegotiateURL *url.URL
+	// Scheme is the protocol scheme to use. By default NewClient configures
+	// it to "https", but you can override it to "http".
+	Scheme string
 
-	begin         time.Time
+	// begin is when the test started.
+	begin time.Time
+
+	// clientResults contains results collected by the client.
 	clientResults []model.ClientResults
-	deps          dependencies
-	err           error
+
+	// deps contains the mockable dependencies.
+	deps dependencies
+
+	// err is the overall error that occurred.
+	err error
+
+	// numIterations is the number of iterations to run.
 	numIterations int64
+
+	// serverResults contains the server results.
 	serverResults []model.ServerResults
-	userAgent     string
+
+	// userAgent is the user-agent HTTP header to use.
+	userAgent string
 }
 
 func makeUserAgent(clientName, clientVersion string) string {
@@ -108,10 +143,16 @@ func New(clientName, clientVersion string) (client *Client) {
 	client = &Client{
 		ClientName:    clientName,
 		ClientVersion: clientVersion,
+		FQDN:          "", // user specified and defaults to empty
 		HTTPClient:    http.DefaultClient,
 		Logger:        internal.NoLogger{},
+		Scheme:        "https",
 		begin:         time.Now(),
+		clientResults: []model.ClientResults{},
+		deps:          dependencies{}, // initialized below
+		err:           nil,
 		numIterations: 15,
+		serverResults: []model.ServerResults{},
 		userAgent:     ua,
 	}
 	client.deps = dependencies{
@@ -119,7 +160,7 @@ func New(clientName, clientVersion string) (client *Client) {
 		Download:       client.download,
 		HTTPClientDo:   client.httpClientDo,
 		HTTPNewRequest: http.NewRequest,
-		IOUtilReadAll:  io.ReadAll,
+		IOReadAll:      io.ReadAll,
 		JSONMarshal:    json.Marshal,
 		Locator:        locate.NewClient(ua),
 		Loop:           client.loop,
@@ -131,7 +172,13 @@ func New(clientName, clientVersion string) (client *Client) {
 // negotiate is the preliminary phase of Neubot experiment where we connect
 // to the server, negotiate test parameters, and obtain an authorization
 // token that will be used by us and by the server to identify this experiment.
-func (c *Client) negotiate(ctx context.Context) (model.NegotiateResponse, error) {
+func (c *Client) negotiate(
+	ctx context.Context,
+	negotiateURL *url.URL,
+) (model.NegotiateResponse, error) {
+	// 1. create the HTTP request
+	//
+	// TODO(bassosimone): use http.NewRequestWithContext
 	var negotiateResponse model.NegotiateResponse
 	data, err := c.deps.JSONMarshal(model.NegotiateRequest{
 		DASHRates: spec.DefaultRates,
@@ -139,35 +186,52 @@ func (c *Client) negotiate(ctx context.Context) (model.NegotiateResponse, error)
 	if err != nil {
 		return negotiateResponse, err
 	}
-	URL := c.NegotiateURL
 	c.Logger.Debugf("dash: body: %s", string(data))
-	req, err := c.deps.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
+	req, err := c.deps.HTTPNewRequest("POST", negotiateURL.String(), bytes.NewReader(data))
 	if err != nil {
 		return negotiateResponse, err
 	}
-	c.Logger.Debugf("dash: POST %s", URL.String())
+	c.Logger.Debugf("dash: POST %s", negotiateURL.String())
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "")
 	req = req.WithContext(ctx)
+
+	// 2. send the request and receive the response headers
 	resp, err := c.deps.HTTPClientDo(req)
 	if err != nil {
 		return negotiateResponse, err
 	}
+	defer resp.Body.Close()
+
+	// 3. handle the case where the status code indicates failure
 	c.Logger.Debugf("dash: StatusCode: %d", resp.StatusCode)
 	if resp.StatusCode != 200 {
 		return negotiateResponse, errHTTPRequestFailed
 	}
-	defer resp.Body.Close()
-	data, err = c.deps.IOUtilReadAll(resp.Body)
+
+	// 4. read the raw response body
+	//
+	// TODO(bassosimone):
+	//
+	// a) protect against arbitrarily large bodies
+	//
+	// b) make sure the context can still interrupt a client otherwise
+	// with some amount of interference, we'll block here forever
+	data, err = c.deps.IOReadAll(resp.Body)
 	if err != nil {
 		return negotiateResponse, err
 	}
+
+	// 5. parse the response body
 	c.Logger.Debugf("dash: body: %s", string(data))
 	err = json.Unmarshal(data, &negotiateResponse)
 	if err != nil {
 		return negotiateResponse, err
 	}
+
+	// 6. make sure that the server isn't busy
+	//
 	// Implementation oddity: Neubot is using an integer rather than a
 	// boolean for the unchoked, with obvious semantics. I wonder why
 	// I choose an integer over a boolean, given that Python does have
@@ -193,10 +257,16 @@ func makeDownloadURL(negotiateURL *url.URL, path string) *url.URL {
 // then we return the measured performance of this segment to the caller. This
 // is repeated several times to emulate downloading part of a video.
 func (c *Client) download(
-	ctx context.Context, authorization string, current *model.ClientResults,
+	ctx context.Context,
+	authorization string,
+	current *model.ClientResults,
+	negotiateURL *url.URL,
 ) error {
+	// 1. create the HTTP request
+	//
+	// TODO(bassosimone): use http.NewRequestWithContext
 	nbytes := (current.Rate * 1000 * current.ElapsedTarget) >> 3
-	URL := makeDownloadURL(c.NegotiateURL, fmt.Sprintf("%s%d", spec.DownloadPath, nbytes))
+	URL := makeDownloadURL(negotiateURL, fmt.Sprintf("%s%d", spec.DownloadPath, nbytes))
 	req, err := c.deps.HTTPNewRequest("GET", URL.String(), nil)
 	if err != nil {
 		return err
@@ -207,19 +277,35 @@ func (c *Client) download(
 	req.Header.Set("Authorization", authorization)
 	req = req.WithContext(ctx)
 	savedTicks := time.Now()
+
+	// 2. send the request and receive the response headers
 	resp, err := c.deps.HTTPClientDo(req)
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
+
+	// 3. handle the case where the status code indicates failure
 	c.Logger.Debugf("dash: StatusCode: %d", resp.StatusCode)
 	if resp.StatusCode != 200 {
 		return errHTTPRequestFailed
 	}
-	defer resp.Body.Close()
-	data, err := c.deps.IOUtilReadAll(resp.Body)
+
+	// 4. read the raw response body
+	//
+	// TODO(bassosimone):
+	//
+	// a) protect against arbitrarily large bodies
+	//
+	// b) make sure the context can still interrupt a client otherwise
+	// with some amount of interference, we'll block here forever
+	data, err := c.deps.IOReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
+
+	// 5. compute performance metrics and update current
+	//
 	// Implementation note: MK contains a comment that says that Neubot uses
 	// the elapsed time since when we start receiving the response but it
 	// turns out that Neubot and MK do the same. So, we do what they do. At
@@ -229,6 +315,7 @@ func (c *Client) download(
 	current.Received = int64(len(data))
 	current.RequestTicks = savedTicks.Sub(c.begin).Seconds()
 	current.Timestamp = time.Now().Unix()
+
 	//c.Logger.Debugf("dash: current: %+v", current) /* for debugging */
 	return nil
 }
@@ -244,13 +331,21 @@ func makeCollectURL(negotiateURL *url.URL) *url.URL {
 
 // collect is the final phase of the test. We send to the server what we
 // measured and we receive back what it has measured.
-func (c *Client) collect(ctx context.Context, authorization string) error {
+func (c *Client) collect(
+	ctx context.Context,
+	authorization string,
+	negotiateURL *url.URL,
+) error {
+	// 1. create the HTTP request including the JSON request body
+	//
+	// TODO(bassosimone): our request constructor should use http.NewRequestWithContext
+	// such that we don't actually need to set the context as a separate operation
 	data, err := c.deps.JSONMarshal(c.clientResults)
 	if err != nil {
 		return err
 	}
 	c.Logger.Debugf("dash: body: %s", string(data))
-	URL := makeCollectURL(c.NegotiateURL)
+	URL := makeCollectURL(negotiateURL)
 	req, err := c.deps.HTTPNewRequest("POST", URL.String(), bytes.NewReader(data))
 	if err != nil {
 		return err
@@ -260,40 +355,65 @@ func (c *Client) collect(ctx context.Context, authorization string) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", authorization)
 	req = req.WithContext(ctx)
+
+	// 2. send the request and receive the corresponding response headers
 	resp, err := c.deps.HTTPClientDo(req)
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
+
+	// 3. handle the case where the status code indicates failure
 	c.Logger.Debugf("dash: StatusCode: %d", resp.StatusCode)
 	if resp.StatusCode != 200 {
 		return errHTTPRequestFailed
 	}
-	defer resp.Body.Close()
-	data, err = c.deps.IOUtilReadAll(resp.Body)
+
+	// 4. read the raw response body
+	//
+	// TODO(bassosimone):
+	//
+	// a) protect against arbitrarily large bodies
+	//
+	// b) make sure the context can still interrupt a client otherwise
+	// with some amount of interference, we'll block here forever
+	data, err = c.deps.IOReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
+
+	// 5. parse the response body
+	//
+	// Implementation note: historically this client did never care
+	// about saving the response body and we're still doing this
 	c.Logger.Debugf("dash: body: %s", string(data))
-	err = json.Unmarshal(data, &c.serverResults)
-	if err != nil {
-		return err
-	}
-	return nil
+	return json.Unmarshal(data, &c.serverResults)
 }
 
 // loop is the main loop of the DASH test. It performs negotiation, the test
 // proper, and then collection. It posts interim results on |ch|.
-func (c *Client) loop(ctx context.Context, ch chan<- model.ClientResults) {
+func (c *Client) loop(
+	ctx context.Context,
+	ch chan<- model.ClientResults,
+	negotiateURL *url.URL,
+) {
+	// 1. make sure we close the channel when done
 	defer close(ch)
+
+	// 2. negotiate an authorization token with the server
+	//
 	// Implementation note: we will soon refactor the server to eliminate the
 	// possiblity of keeping clients in queue. For this reason it's becoming
 	// increasingly less important to loop waiting for the ready signal. Hence
 	// if the server is busy, we just return a well known error.
 	var negotiateResponse model.NegotiateResponse
-	negotiateResponse, c.err = c.deps.Negotiate(ctx)
+	negotiateResponse, c.err = c.deps.Negotiate(ctx, negotiateURL)
 	if c.err != nil {
 		return
 	}
+
+	// 3. run the measurement loop proper
+	//
 	// Note: according to a comment in MK sources 3000 kbit/s was the
 	// minimum speed recommended by Netflix for SD quality in 2017.
 	//
@@ -307,7 +427,7 @@ func (c *Client) loop(ctx context.Context, ch chan<- model.ClientResults) {
 		Version:       magicVersion,
 	}
 	for current.Iteration < c.numIterations {
-		c.err = c.deps.Download(ctx, negotiateResponse.Authorization, &current)
+		c.err = c.deps.Download(ctx, negotiateResponse.Authorization, &current, negotiateURL)
 		if c.err != nil {
 			return
 		}
@@ -319,7 +439,9 @@ func (c *Client) loop(ctx context.Context, ch chan<- model.ClientResults) {
 		speed /= 1000.0 // to kbit/s
 		current.Rate = int64(speed)
 	}
-	c.err = c.deps.Collect(ctx, negotiateResponse.Authorization)
+
+	// 4. submit the measurement results
+	c.err = c.deps.Collect(ctx, negotiateResponse.Authorization, negotiateURL)
 }
 
 // StartDownload starts the DASH download. It returns a channel where
@@ -328,30 +450,50 @@ func (c *Client) loop(ctx context.Context, ch chan<- model.ClientResults) {
 // results on the returned channel, then maybe it means the experiment
 // has somehow worked. You can see if there has been any error during
 // the experiment by using the Error function.
-//
-// This method MUTATES the [*Client] by setting .NegotiateURL using
-// the mlab/locate v2 API if .NegotiateURL is originally nil.
 func (c *Client) StartDownload(ctx context.Context) (<-chan model.ClientResults, error) {
-	if c.NegotiateURL == nil {
+
+	// 1. use the provided -fqdn or use m-lab/locate/v2
+	var negotiateURL *url.URL
+	switch {
+
+	// 1.1: the user manually specified the server -fqdn
+	case c.FQDN != "":
+		negotiateURL.Scheme = c.Scheme
+		negotiateURL.Host = c.FQDN
+		negotiateURL.Path = spec.NegotiatePath
+
+	// 1.2: we're going to use m-lab/locate/v2 for discovering the server
+	default:
 		c.Logger.Debug("dash: discovering server with locate v2")
+
 		targets, err := c.deps.Locator.Nearest(ctx, "neubot/dash")
 		if err != nil {
-			log.Printf("ELLIOT: %s", err.Error())
 			return nil, err
 		}
+		if len(targets) < 1 {
+			return nil, errors.New("no targets")
+		}
+
 		URL := targets[0].URLs["https:///negotiate/dash"]
 		parsed, err := url.Parse(URL)
 		if err != nil {
 			return nil, err
 		}
-		c.NegotiateURL = parsed
+
+		negotiateURL = parsed
 	}
+
+	// 2. check for context being canceled
+	//
+	// this check is useful to write better tests
 	if ctx.Err() != nil {
-		return nil, ctx.Err() // this line is useful to write better tests
+		return nil, ctx.Err()
 	}
-	c.Logger.Debugf("dash: using server: %v", c.NegotiateURL)
+
+	// 3. run the client loop and return the resulting channel
+	c.Logger.Debugf("dash: using server: %v", negotiateURL)
 	ch := make(chan model.ClientResults)
-	go c.deps.Loop(ctx, ch)
+	go c.deps.Loop(ctx, ch, negotiateURL)
 	return ch, nil
 }
 
@@ -359,6 +501,8 @@ func (c *Client) StartDownload(ctx context.Context) (<-chan model.ClientResults,
 // return value means that all was good. A returned error does not however
 // necessarily mean that all was bad; you may have _some_ data.
 func (c *Client) Error() error {
+	// TODO(bassosimone): I am not convinced about writing into the
+	// err field without any locking and should double check this
 	return c.err
 }
 

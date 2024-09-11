@@ -76,7 +76,7 @@ func TestClientNegotiate(t *testing.T) {
 				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
-		client.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+		client.deps.IOReadAll = func(r io.Reader) ([]byte, error) {
 			return nil, errors.New("Mocked error")
 		}
 		_, err := client.negotiate(context.Background())
@@ -180,7 +180,7 @@ func TestClientDownload(t *testing.T) {
 				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
-		client.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+		client.deps.IOReadAll = func(r io.Reader) ([]byte, error) {
 			return nil, errors.New("Mocked error")
 		}
 		current := new(model.ClientResults)
@@ -263,7 +263,7 @@ func TestClientCollect(t *testing.T) {
 				Body:       ioutil.NopCloser(bytes.NewReader(nil)),
 			}, nil
 		}
-		client.deps.IOUtilReadAll = func(r io.Reader) ([]byte, error) {
+		client.deps.IOReadAll = func(r io.Reader) ([]byte, error) {
 			return nil, errors.New("Mocked error")
 		}
 		err := client.collect(context.Background(), "abc")

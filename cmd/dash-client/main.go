@@ -2,17 +2,22 @@
 //
 // Usage:
 //
-//	dash-client -y [-negotiate-url <URL>] [-timeout <string>]
+//	dash-client -y [-hostname <domain>] [-timeout <string>] [-scheme <scheme>]
 //
 // The `-y` flag indicates you have read the data policy and accept it.
 //
-// The `-negotiate-url <URL>` flag explicitly specifies the negotiate URL
-// to use rather than discovering it using the mlab/locate v2 API.
+// The `-hostname <name>` flag specifies to use the `name` hostname for
+// performing the dash test. The default is to autodiscover a suitable
+// server by using Measurement Lab's m-lab/locate/v2 API.
 //
 // The `-timeout <string>` flag specifies the time after which the
 // whole test is interrupted. The `<string>` is a string suitable to
 // be passed to time.ParseDuration, e.g., "15s". The default is a large
 // enough value that should be suitable for common conditions.
+//
+// The `-scheme <scheme>` flag allows to override the default scheme
+// used for the test, i.e. "http". All DASH servers support that,
+// future versions of the Go server will support "https".
 //
 // Additionally, passing any unrecognized flag, such as `-help`, will
 // cause dash-client to print a brief help message.
@@ -23,11 +28,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"net/url"
 	"os"
 	"time"
 
 	"github.com/apex/log"
+	"github.com/m-lab/go/flagx"
 	"github.com/m-lab/go/rtx"
 	"github.com/neubot/dash/client"
 )
@@ -39,11 +44,27 @@ const (
 )
 
 var (
-	flagNegotiateURL = flag.String("negotiate-url", "", "optional negotiate URL")
-	flagTimeout      = flag.Duration(
+	flagHostname = flag.String("hostname", "", "optional DASH server hostname")
+
+	flagTimeout = flag.Duration(
 		"timeout", defaultTimeout, "time after which the test is aborted")
-	flagY = flag.Bool("y", false, "I have read and accept the privacy policy at https://github.com/neubot/dash/blob/master/PRIVACY.md")
+
+	flagScheme = flagx.Enum{
+		Options: []string{"https", "http"},
+		Value:   "https",
+	}
+
+	flagY = flag.Bool("y", false,
+		"I have read and accept the privacy policy at https://github.com/neubot/dash/blob/master/PRIVACY.md")
 )
+
+func init() {
+	flag.Var(
+		&flagScheme,
+		"scheme",
+		`Protocol scheme to use: either "https" (the default) or "http"`,
+	)
+}
 
 func realmain(ctx context.Context, client *client.Client, timeout time.Duration, onresult func()) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -85,14 +106,8 @@ func internalmain(ctx context.Context) error {
 	}
 	client := client.New(clientName, clientVersion)
 	client.Logger = log.Log
-	if *flagNegotiateURL != "" {
-		URL, err := url.Parse(*flagNegotiateURL)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "dash: invalid URL: %s", *flagNegotiateURL)
-			os.Exit(1)
-		}
-		client.NegotiateURL = URL
-	}
+	client.FQDN = *flagHostname
+	client.Scheme = flagScheme.Value
 	return realmain(ctx, client, *flagTimeout, nil)
 }
 

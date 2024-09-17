@@ -2,13 +2,13 @@
 //
 // Usage:
 //
-//    dash-client -y [-hostname <name>] [-timeout <string>] [-scheme <scheme>]
+//	dash-client -y [-hostname <domain>] [-timeout <string>] [-scheme <scheme>]
 //
 // The `-y` flag indicates you have read the data policy and accept it.
 //
 // The `-hostname <name>` flag specifies to use the `name` hostname for
 // performing the dash test. The default is to autodiscover a suitable
-// server by using Measurement Lab's locate service.
+// server by using Measurement Lab's m-lab/locate/v2 API.
 //
 // The `-timeout <string>` flag specifies the time after which the
 // whole test is interrupted. The `<string>` is a string suitable to
@@ -44,14 +44,18 @@ const (
 )
 
 var (
-	flagHostname = flag.String("hostname", "", "optional ndt7 server hostname")
-	flagTimeout  = flag.Duration(
+	flagHostname = flag.String("hostname", "", "optional DASH server hostname")
+
+	flagTimeout = flag.Duration(
 		"timeout", defaultTimeout, "time after which the test is aborted")
+
 	flagScheme = flagx.Enum{
 		Options: []string{"https", "http"},
 		Value:   "https",
 	}
-	flagY = flag.Bool("y", false, "I have read and accept the privacy policy at https://github.com/neubot/dash/blob/master/PRIVACY.md")
+
+	flagY = flag.Bool("y", false,
+		"I have read and accept the privacy policy at https://github.com/neubot/dash/blob/master/PRIVACY.md")
 )
 
 func init() {

@@ -7,7 +7,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/handlers v1.5.2
 	github.com/m-lab/go v0.1.73
-	github.com/m-lab/ndt5-client-go v0.1.0
+	github.com/m-lab/locate v0.14.52
 )
 
 require (

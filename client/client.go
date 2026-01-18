@@ -27,7 +27,7 @@ const (
 	libraryName = "neubot-dash"
 
 	// libraryVersion is the version of this library.
-	libraryVersion = "0.4.3"
+	libraryVersion = "0.5.0"
 
 	// magicVersion is a magic number that identifies in a unique
 	// way this implementation of DASH. 0.007xxxyyy is Measurement
